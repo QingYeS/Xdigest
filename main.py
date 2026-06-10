@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from scraper import scrape_following_feed
 from analyzer import analyze_posts
 from emailer import send_digest
+from archive import append_posts, prune
 from config import SEEN_POSTS_FILE, GMAIL_USER, GMAIL_APP_PASSWORD, RECIPIENT_EMAIL
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo  # 系统本地时区
@@ -57,6 +58,12 @@ def run():
     analyzed = analyze_posts(new_posts)
 
     send_digest(analyzed)
+
+    try:
+        append_posts(analyzed)
+        prune()
+    except Exception as archive_err:
+        print(f"[archive] 写入失败(不影响邮件): {archive_err}")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     for p in new_posts:

@@ -6,6 +6,8 @@ x_cookies_raw.json
 # Runtime state
 seen_posts.json
 logs/
+archive/
+xhs_output/
 
 # Abandoned browser-automation artifacts
 chrome_profile/
