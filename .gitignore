@@ -1,0 +1,27 @@
+# Secrets & credentials — never commit these
+.env
+x_cookies.json
+x_cookies_raw.json
+
+# Runtime state
+seen_posts.json
+logs/
+
+# Abandoned browser-automation artifacts
+chrome_profile/
+debug_screenshot.png
+
+# Build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Packaging
+xdigest_package.zip
+
+# macOS
+.DS_Store
