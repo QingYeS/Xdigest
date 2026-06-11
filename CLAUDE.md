@@ -160,6 +160,7 @@ Serenity (@aleabitoreddit),中文圈称「白毛股神」。
 python main.py                              # 常规运行(邮件 + 小红书内容生成)
 python weekly.py                            # 周报模式(每周日触发,可手动执行也可安装配套 launchd plist)
 python xhs_pipeline.py --mock              # 本地全链路调试,不消耗 API
+python xhs_composer.py --debug-pack        # 打印装箱结果(不消耗 API,验证分帖逻辑)
 python import_cookies.py x_cookies_raw.json  # 首次部署 Cookie 转换
 pytest tests/                               # 运行单元测试
 ```
@@ -195,6 +196,6 @@ Pillow               # 图片渲染(新增,随 xhs_renderer 引入)
 | `RECIPIENT_EMAIL` | 收件人(逗号分隔) | 现有 |
 | `GROQ_API_KEY` | Groq API 密钥 | 现有 |
 | `XHS_OUTPUT_DIR` | 小红书输出根目录,默认 `xhs_output` | 新增 |
-| `XHS_MAX_CARDS_PER_POST` | 每帖内容卡上限,默认 `4` | 新增 |
+| `XHS_MAX_TWEETS_PER_POST` | 每帖推文数量软上限,默认 `3` | 新增 |
 | `XHS_FONT_BOLD` | 粗体字体路径(可选覆盖) | 新增 |
 | `XHS_FONT_REGULAR` | 常规字体路径(可选覆盖) | 新增 |

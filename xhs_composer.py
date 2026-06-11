@@ -11,9 +11,12 @@ LLM 接口(可注入,便于测试):
         stance ∈ {bullish, bearish, neutral}；仅原推有明确方向时标 bullish/bearish，其余 neutral
         heading/points 中指代博主一律用名字（Serenity），禁用「她」「他」
         rejected_phrases: 上次被拒绝的禁词列表(重试时传入,让 LLM 知道原因)
-    plan_llm(cards, session, rejected_phrases=None) -> dict
+
+    plan_llm(cards, session, prior_summaries=None, rejected_phrases=None) -> dict
         字段: hook(str), cover_headline(str), cover_subline(str),
                caption_body(str), hashtags(list[str])
+        prior_summaries: 前面各帖 cover_subline 列表（分割帖续帖时传入，
+                          供生成衔接 caption 用；单帖时为空列表）
         cover_headline 约束: 优先使用中文称呼「白毛股神」，避免英文名 Serenity
           （排版考量：英文长词在封面大字号下易被断行；points/caption 中仍正常使用 Serenity）
         rejected_phrases: 同上
@@ -26,7 +29,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 DISCLAIMER = (
     "以上仅为博主观点的翻译与个人解读，不构成任何投资建议，"
@@ -41,8 +44,10 @@ BANNED_PHRASES: List[str] = [
 # 代词禁用：heading/points 中一律用博主名字，禁用 她/他
 BANNED_PRONOUNS: List[str] = ["她", "他"]
 
-MAX_CARDS: int = int(os.getenv("XHS_MAX_CARDS_PER_POST", "4"))
-LONG_TWEET_THRESHOLD: int = 120  # translation 超过此字数视为长推,拆 2 张卡
+# 容量配置
+LONG_TWEET_THRESHOLD: int = 120   # translation 超过此字数视为长推
+MAX_TWEETS: int = int(os.getenv("XHS_MAX_TWEETS_PER_POST", "3"))   # 每帖推数量软上限
+MAX_CARDS_HARD: int = 16          # 每帖内容卡硬上限 (18张图 - 封面 - 尾页)
 
 
 # ── 数据结构 ─────────────────────────────────────────────────────────────────
@@ -54,7 +59,9 @@ class ContentCard:
     points: List[str]       # 2-4 个要点,每条 ≤24 字
     part: int = 1           # 长推拆分时的页码
     quote: Optional[str] = None  # 原推英文引言(可选,用于 quote sticky note)
-    tickers: List[dict] = field(default_factory=list)  # [{symbol, stance}], stance ∈ bullish/bearish/neutral
+    tickers: List[dict] = field(default_factory=list)  # [{symbol, stance}]
+    full_original: str = ""    # 对应推的英文原文(图文分工:图=摘要卡,文=原文对照)
+    full_translation: str = "" # 对应推的全文直译
 
 
 @dataclass
@@ -83,8 +90,14 @@ def scan_card_violations(text: str) -> List[str]:
     return violations
 
 
-def _is_long(post: dict) -> bool:
-    return len(post.get("translation", "")) > LONG_TWEET_THRESHOLD
+def estimate_cards(post: dict) -> int:
+    """粗略估算一条推需要几张内容卡（按译文字数，不依赖渲染）。"""
+    n = len(post.get("translation", ""))
+    if n <= LONG_TWEET_THRESHOLD:
+        return 1
+    if n <= LONG_TWEET_THRESHOLD * 2:
+        return 2
+    return 3
 
 
 def _build_title(
@@ -117,6 +130,7 @@ def _default_card_llm(
 def _default_plan_llm(
     cards: List[ContentCard],
     session: str,
+    prior_summaries: Optional[List[str]] = None,
     rejected_phrases: Optional[List[str]] = None,
 ) -> dict:
     raise NotImplementedError("Groq plan LLM not yet wired up — pass plan_llm= for testing")
@@ -133,7 +147,7 @@ def _gen_cards_with_validation(
     命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 card_llm。
     返回 (cards, needs_human_edit)。
     """
-    n_cards = 2 if _is_long(post) else 1
+    n_cards = estimate_cards(post)
     last_cards: List[ContentCard] = []
     rejected: Optional[List[str]] = None
 
@@ -146,6 +160,8 @@ def _gen_cards_with_validation(
                 points=list(r["points"]),
                 part=i + 1,
                 tickers=list(r.get("tickers", [])),
+                full_original=post.get("content", ""),
+                full_translation=post.get("translation", ""),
             )
             for i, r in enumerate(raw[:n_cards])
         ]
@@ -155,7 +171,7 @@ def _gen_cards_with_validation(
             return cards, False
         rejected = hits
         last_cards = cards
-        print(f"[composer] 卡片禁词命中 {hits},第 {attempt + 1}/2 次重试")
+        print(f"[composer] card violation {hits}, retry {attempt + 1}/2")
 
     return last_cards, True
 
@@ -166,17 +182,24 @@ def _gen_plan_meta(
     part_no: Optional[int],
     run_date: date,
     plan_llm: Callable,
+    prior_summaries: Optional[List[str]] = None,
 ) -> Tuple[Dict, bool]:
     """
     为单个 PostPlan 生成 title/cover/caption,并做禁词校验。
     命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 plan_llm。
+    prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入）。
     返回 (meta_dict, needs_human_edit)。
     """
     last: Dict = {}
     rejected: Optional[List[str]] = None
 
     for attempt in range(3):  # 初次 + 最多 2 次重试
-        raw = plan_llm(cards, session, rejected_phrases=rejected)
+        raw = plan_llm(
+            cards,
+            session,
+            prior_summaries=prior_summaries,
+            rejected_phrases=rejected,
+        )
         title = _build_title(raw["hook"], session, run_date, part_no)
         caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []))
         last = {
@@ -189,7 +212,7 @@ def _gen_plan_meta(
         if not hits:
             return last, False
         rejected = hits
-        print(f"[composer] 帖子禁词命中 {hits},第 {attempt + 1}/2 次重试")
+        print(f"[composer] plan violation {hits}, retry {attempt + 1}/2")
 
     return last, True
 
@@ -204,6 +227,14 @@ def compose(
 ) -> List[PostPlan]:
     """
     把 posts 合成若干 PostPlan。
+
+    装箱规则（以推为原子单位）:
+    - 软上限: 每帖最多 MAX_TWEETS 条推（XHS_MAX_TWEETS_PER_POST，默认 3）
+    - 硬上限: 单帖内容卡 ≤ MAX_CARDS_HARD（16）
+    - 触发新帖条件（满足任一）:
+        (a) 当前帖已达 MAX_TWEETS 条推
+        (b) 再加下一条推的卡组会使内容卡超过 MAX_CARDS_HARD
+    - 原子性: 同一条推的所有卡始终归属同一帖，不跨帖切断
 
     Args:
         posts:    目标博主的帖子列表(已经过 filter_tracked 筛选)
@@ -220,44 +251,60 @@ def compose(
     if plan_llm is None:
         plan_llm = _default_plan_llm
 
-    # 步骤 1:每条推生成 1-2 张 ContentCard,记录卡片验证失败的 post_id
-    all_cards: List[ContentCard] = []
-    failing_post_ids: Set[str] = set()
+    # 步骤 1: 每条推生成卡组（tweet group = 该推的所有 ContentCard）
+    # tweet_groups: [(post_id, cards, card_needs_edit), ...]
+    TweetGroup = Tuple[str, List[ContentCard], bool]
+    tweet_groups: List[TweetGroup] = []
     for post in posts:
         cards, card_needs_edit = _gen_cards_with_validation(post, card_llm)
-        all_cards.extend(cards)
-        if card_needs_edit:
-            failing_post_ids.add(post["id"])
+        if cards:
+            tweet_groups.append((post["id"], cards, card_needs_edit))
 
-    if not all_cards:
+    if not tweet_groups:
         return []
 
-    # 步骤 2:装箱——按时间顺序,每帖最多 MAX_CARDS 张卡
-    bins: List[List[ContentCard]] = []
-    for card in all_cards:
-        if not bins or len(bins[-1]) >= MAX_CARDS:
-            bins.append([])
-        bins[-1].append(card)
+    # 步骤 2: 装箱——以推组为单位，维护软/硬上限，保持原子性
+    bins: List[List[TweetGroup]] = []
+    for group in tweet_groups:
+        _, group_cards, _ = group
+        group_n = len(group_cards)
+        current_tweets = len(bins[-1]) if bins else 0
+        current_cards = sum(len(g[1]) for g in bins[-1]) if bins else 0
 
-    # 步骤 3:为每个 bin 生成 title/cover/caption
+        start_new = (
+            not bins
+            or current_tweets >= MAX_TWEETS
+            or current_cards + group_n > MAX_CARDS_HARD
+        )
+        if start_new:
+            bins.append([])
+        bins[-1].append(group)
+
+    # 步骤 3: 为每个 bin 生成 title/cover/caption（传递前帖摘要作衔接上下文）
     n_bins = len(bins)
     plans: List[PostPlan] = []
-    for i, cards in enumerate(bins):
+    for i, bin_groups in enumerate(bins):
+        bin_cards = [c for _, grp_cards, _ in bin_groups for c in grp_cards]
+        bin_has_fail = any(needs_edit for _, _, needs_edit in bin_groups)
+
         part_no = (i + 1) if n_bins > 1 else None
-        meta, plan_needs_edit = _gen_plan_meta(cards, session, part_no, run_date, plan_llm)
-        card_issue = any(c.source_post_id in failing_post_ids for c in cards)
+        prior_summaries = [p.cover_subline for p in plans]  # plans generated so far
+
+        meta, plan_needs_edit = _gen_plan_meta(
+            bin_cards, session, part_no, run_date, plan_llm, prior_summaries
+        )
         plans.append(PostPlan(
             title=meta["title"],
             cover_headline=meta["cover_headline"],
             cover_subline=meta["cover_subline"],
-            cards=cards,
+            cards=bin_cards,
             caption=meta["caption"],
             session=session,
             part_no=part_no,
-            needs_human_edit=plan_needs_edit or card_issue,
+            needs_human_edit=plan_needs_edit or bin_has_fail,
         ))
 
-    # 步骤 4:分割帖 cover_subline 唯一性检查
+    # 步骤 4: 分割帖 cover_subline 唯一性检查
     if len(plans) > 1:
         seen: Dict[str, int] = {}
         for p in plans:
@@ -267,6 +314,90 @@ def compose(
             for p in plans:
                 if p.cover_subline in duplicates:
                     p.needs_human_edit = True
-                    print(f"[composer] 分割帖 cover_subline 重复: {p.cover_subline!r}")
+                    print(f"[composer] duplicate cover_subline: {p.cover_subline!r}")
 
     return plans
+
+
+# ── debug-pack 入口（python xhs_composer.py --debug-pack）────────────────────
+
+def _debug_pack() -> None:
+    """用占位 LLM 打印装箱结果，不消耗 API，供验证装箱逻辑。"""
+    from datetime import datetime
+
+    run_date = date.today()
+
+    # 构造不同长度的 mock 推
+    def _post(pid: str, n_chars: int) -> dict:
+        return {
+            "id": pid,
+            "content": f"[EN] post {pid}",
+            "translation": "测" * n_chars,
+        }
+
+    # 场景: 4条推 — 短(50)/长(135)/短(80)/超长(250)
+    # estimate_cards: 50→1, 135→2, 80→1, 250→3  合计: 7张卡
+    # MAX_TWEETS=3 → 第4条推超出推数软上限，触发分帖
+    posts = [
+        _post("p1", 50),    # 1 card
+        _post("p2", 135),   # 2 cards
+        _post("p3", 80),    # 1 card
+        _post("p4", 250),   # 3 cards  ← 触发新帖(已有3条推)
+    ]
+
+    call_idx = [0]
+
+    def stub_card_llm(post, n_cards, rejected_phrases=None):
+        return [
+            {"heading": f"{post['id']} 标题{i+1}", "points": ["要点一", "要点二"]}
+            for i in range(n_cards)
+        ]
+
+    def stub_plan_llm(cards, session, prior_summaries=None, rejected_phrases=None):
+        call_idx[0] += 1
+        pid_set = sorted({c.source_post_id for c in cards})
+        return {
+            "hook": f"帖{call_idx[0]}钩子({'、'.join(pid_set)})",
+            "cover_headline": f"白毛股神谈{''.join(pid_set)}",
+            "cover_subline": f"第{call_idx[0]}帖副标题",
+            "caption_body": f"本帖摘要{'、'.join(pid_set)}",
+            "hashtags": ["美股"],
+        }
+
+    plans = compose(posts, "盘前", {}, run_date=run_date,
+                    card_llm=stub_card_llm, plan_llm=stub_plan_llm)
+
+    sep = "-" * 56
+    print(f"\nPack result  {run_date}  {len(plans)} plan(s)\n{sep}")
+    for plan in plans:
+        seen_ids: List[str] = []
+        tweet_card_counts: Dict[str, int] = {}
+        for card in plan.cards:
+            pid = card.source_post_id
+            if pid not in seen_ids:
+                seen_ids.append(pid)
+            tweet_card_counts[pid] = tweet_card_counts.get(pid, 0) + 1
+
+        part_label = f"part {plan.part_no}" if plan.part_no else "single"
+        edit_flag = " [needs_edit]" if plan.needs_human_edit else ""
+        print(f"  [{part_label}]  {len(seen_ids)} tweets  {len(plan.cards)} cards{edit_flag}")
+        char_lens = {"p1": 50, "p2": 135, "p3": 80, "p4": 250}
+        for pid in seen_ids:
+            n = tweet_card_counts[pid]
+            est = estimate_cards({"translation": "x" * char_lens.get(pid, 50)})
+            print(f"    {pid}: {n} card(s)  (estimate={est}, tlen={char_lens.get(pid,50)})")
+        safe_title = plan.title.encode("ascii", "replace").decode()
+        print(f"  title: {safe_title}")
+        print(sep)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug-pack", action="store_true",
+                        help="打印装箱结果（使用占位 LLM，不消耗 API）")
+    args = parser.parse_args()
+    if args.debug_pack:
+        _debug_pack()
+    else:
+        parser.print_help()
