@@ -295,7 +295,35 @@ def test_card_pronoun_in_points_triggers_retry_succeeds():
     assert not plans[0].needs_human_edit
 
 
-# ── 16: ticker stance 数据流 ─────────────────────────────────────────────────
+# ── 16: 分割帖 plan_llm 按 bin 独立调用 ──────────────────────────────────────
+
+def test_split_plans_plan_llm_called_per_bin_with_correct_cards():
+    """
+    装箱后每个 bin 独立调用一次 plan_llm，传入的 cards 正好是该 bin 的内容，
+    两个 bin 的 source_post_id 集合不重叠。
+    """
+    received = []  # list of [source_post_id, ...]
+
+    def tracking_plan_llm(cards, session, rejected_phrases=None):
+        received.append([c.source_post_id for c in cards])
+        return CLEAN_META
+
+    posts = [make_post(f"p{i}") for i in range(5)]  # 5 posts -> bins 4+1
+    plans = compose(
+        posts, "盘前", BLOGGER,
+        run_date=RUN_DATE,
+        card_llm=make_card_llm(),
+        plan_llm=tracking_plan_llm,
+    )
+    assert len(plans) == 2
+    assert len(received) == 2                    # called once per bin
+    assert len(received[0]) == 4                 # first bin: 4 cards
+    assert len(received[1]) == 1                 # second bin: 1 card
+    # no overlap: each source_post_id belongs to exactly one bin
+    assert not set(received[0]) & set(received[1])
+
+
+# ── 17: ticker stance 数据流 ─────────────────────────────────────────────────
 
 def test_card_tickers_neutral_stance_flows_through():
     """无方向性表述时 stance=neutral 应从 LLM 输出直接传递到 ContentCard。"""

@@ -286,6 +286,25 @@ body {
 .scan-table tr:last-child td { border-bottom: none; }
 .status-clean { color: #16a34a; font-weight: 500; }
 .status-hit   { color: #dc2626; font-weight: 700; }
+
+/* ─ ticker stance badges in source panel ─ */
+.stance-row {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed #e0e7ff;
+}
+.stance-row-label {
+    font-size: 10px; color: #999; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    align-self: center;
+}
+.stance-badge {
+    font-size: 11px; padding: 2px 8px;
+    border-radius: 10px; font-weight: 600;
+}
+.stance-bullish { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.stance-bearish { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.stance-neutral  { background: #f0f4ff; color: #3730a3; border: 1px solid #c7d2fe; }
 """
 
 # ── JS ────────────────────────────────────────────────────────────────────────
@@ -492,10 +511,41 @@ def _plan_block_html(
         if card.source_post_id not in seen_ids:
             seen_ids.append(card.source_post_id)
 
+    # Build post_id → deduplicated tickers mapping
+    ticker_by_post: Dict[str, List[dict]] = {}
+    seen_ticker_keys: set = set()
+    for card in plan.cards:
+        for t in card.tickers:
+            key = (card.source_post_id, t.get("symbol", ""))
+            if key not in seen_ticker_keys:
+                seen_ticker_keys.add(key)
+                ticker_by_post.setdefault(card.source_post_id, []).append(t)
+
+    _stance_cn = {"bullish": "看涨", "bearish": "看跌", "neutral": "中性"}
+
     for pid in seen_ids:
         post = posts_by_id.get(pid, {})
         content = post.get("content", "（原文不可用）")
         translation = post.get("translation", "（翻译不可用）")
+
+        # Build stance badges for this post
+        stances = ticker_by_post.get(pid, [])
+        stance_html = ""
+        if stances:
+            badges = "".join(
+                f'<span class="stance-badge stance-{_e(t.get("stance","neutral"))}">'
+                f'${_e(t.get("symbol","?"))}: '
+                f'{_stance_cn.get(t.get("stance","neutral"), t.get("stance",""))}'
+                f'</span>'
+                for t in stances
+            )
+            stance_html = (
+                '<div class="stance-row">'
+                '<span class="stance-row-label">Stance&nbsp;</span>'
+                + badges
+                + "</div>"
+            )
+
         parts.append(
             '<div class="tweet-card">'
             f'<div class="tweet-card-id">source_post_id: {_e(pid)}</div>'
@@ -503,7 +553,8 @@ def _plan_block_html(
             '<div class="tweet-translation">'
             '<div class="tweet-trans-label">中文翻译</div>'
             f'<div class="tweet-trans-text">{_e(translation)}</div>'
-            "</div>"
+            + stance_html
+            + "</div>"
             "</div>"
         )
 
@@ -623,7 +674,7 @@ def _run_mock() -> None:
         },
     }
 
-    # ── 帖子 1：正常，2 张内容卡
+    # ── 帖子 1：正常，2 张内容卡（NVDA 供给 + 美联储分歧）
     card1 = ContentCard(
         source_post_id="p1",
         heading="NVDA 供给缺口短期难解",
@@ -636,13 +687,19 @@ def _run_mock() -> None:
         points=["鹰派主张维持利率不变", "鸽派指向就业数据走软", "Serenity 认为观望期至少两个月"],
     )
     plan1 = PostPlan(
-        title="白毛股神6.10盘前｜英伟达供给白毛来看【1】",
-        cover_headline="英伟达供给白毛来看",
-        cover_subline="两条干货一次看完",
+        title="白毛股神6.10盘前｜供给告急美联储同步撕裂【1】",
+        cover_headline="供给告急美联储同步撕裂",
+        cover_subline="两件事放一起才完整",
         cards=[card1, card2],
         caption=(
-            "今日盘前 Serenity 发了两条值得关注的推文。\n\n"
-            "第一条聊英伟达供给，第二条点评美联储内部分歧。\n\n"
+            "今天盘前 Serenity 发了两条，我觉得放一起看才更有意思。\n\n"
+            "英伟达那条，核心判断是：短缺不是暂时的，是结构性的。"
+            "CoWoS 产能爬坡跟不上数据中心扩张速度，这个差距短期内难以消除。\n\n"
+            "美联储那条说内部分歧比外面看到的还大。"
+            "鸽派已经在看数据松动，鹰派还在撑着。"
+            "Serenity 预测至少还有两个月不会动利率。\n\n"
+            "两件事放一起有种共鸣：需求侧（AI 算力）在加速，"
+            "而供给侧（产能和货币）还在被约束着。\n\n"
             "#美股  #英伟达  #NVDA  #美联储\n\n"
             + DISCLAIMER
         ),
@@ -650,7 +707,7 @@ def _run_mock() -> None:
         part_no=1,
     )
 
-    # ── 帖子 2：分割续帖，演示 needs_human_edit 红框
+    # ── 帖子 2：分割续帖（AMD），演示 needs_human_edit 红框
     card3 = ContentCard(
         source_post_id="p3",
         heading="AMD 市占提升估值中性",
@@ -658,12 +715,16 @@ def _run_mock() -> None:
         tickers=[{"symbol": "AMD", "stance": "neutral"}],
     )
     plan2 = PostPlan(
-        title="白毛股神6.10盘前｜英伟达供给白毛来看【2】",
-        cover_headline="英伟达续篇AMD值得看",
-        cover_subline="AMD 这条不能错过",
+        title="白毛股神6.10盘前｜AMD市占涨Serenity估值中性【2】",
+        cover_headline="AMD市占涨Serenity估值中性",
+        cover_subline="中性背后的赔率逻辑",
         cards=[card3],
         caption=(
-            "接上一帖，顺便聊聊 AMD 近期动向。\n\n"
+            "接上一帖，AMD 那条也值得单独说说。\n\n"
+            "Serenity 对 AMD 在企业 AI 推理端的市占提升是认可的，"
+            "这是真实发生的事。但 Serenity 并没有因此给出正面的估值判断——"
+            "理由很直接：好消息已经被定价了，没有安全边际。\n\n"
+            "中性不等于看差，只是赔率不够吸引。\n\n"
             "#美股  #AMD  #半导体\n\n"
             + DISCLAIMER
         ),

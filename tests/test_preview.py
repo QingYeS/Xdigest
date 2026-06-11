@@ -180,3 +180,54 @@ def test_generate_preview_source_tweets_in_right_panel(tmp_path):
     assert "NVDA supply is very tight right now." in text
     assert "英伟达供给目前非常紧张。" in text
     assert "t1" in text  # source_post_id shown
+
+
+# ── 7. Ticker stance 徽章显示 ─────────────────────────────────────────────────
+
+def test_generate_preview_ticker_stance_shown_in_source_panel(tmp_path):
+    cover = _make_png(tmp_path / "cover.png")
+    tail  = _make_png(tmp_path / "tail.png")
+
+    card_bull = ContentCard(
+        source_post_id="t_nvda",
+        heading="NVDA 供给缺口",
+        points=["需求加速"],
+        tickers=[{"symbol": "NVDA", "stance": "bullish"}],
+    )
+    card_neutral = ContentCard(
+        source_post_id="t_amd",
+        heading="AMD 市占提升",
+        points=["推理市场份额增长"],
+        tickers=[{"symbol": "AMD", "stance": "neutral"}],
+    )
+    card_bear = ContentCard(
+        source_post_id="t_intc",
+        heading="INTC 转型进展迟缓",
+        points=["路线图延迟"],
+        tickers=[{"symbol": "INTC", "stance": "bearish"}],
+    )
+    plan = PostPlan(
+        title="白毛股神6.10盘前｜三股分析",
+        cover_headline="三股分析",
+        cover_subline="看涨看跌中性",
+        cards=[card_bull, card_neutral, card_bear],
+        caption=f"测试\n\n{DISCLAIMER}",
+        session="盘前",
+    )
+    posts = {
+        "t_nvda": {"content": "NVDA is great.", "translation": "英伟达很好。"},
+        "t_amd":  {"content": "AMD is ok.", "translation": "AMD 还行。"},
+        "t_intc": {"content": "INTC is struggling.", "translation": "英特尔在挣扎。"},
+    }
+
+    rp = RenderedPlan(plan=plan, cover_path=cover, card_paths=[], tail_path=tail)
+    out = tmp_path / "preview.html"
+    generate_preview([rp], posts, out, RUN_DATE, "盘前")
+
+    text = out.read_text(encoding="utf-8")
+    assert "看涨" in text    # bullish -> 看涨
+    assert "中性" in text    # neutral -> 中性
+    assert "看跌" in text    # bearish -> 看跌
+    assert "stance-bullish" in text
+    assert "stance-neutral" in text
+    assert "stance-bearish" in text
