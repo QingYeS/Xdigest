@@ -627,7 +627,7 @@ def generate_preview(
 # ── --mock 模式 ───────────────────────────────────────────────────────────────
 
 def _run_mock() -> None:
-    from xhs_renderer import render_card, render_cover, render_tail
+    from xhs_renderer import render_cover, render_tail, render_tweet_cards
 
     run_date = date.today()
     ts = datetime.now().strftime("%Y%m%d_%H%M")
@@ -635,18 +635,32 @@ def _run_mock() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[preview] output: {out_dir.resolve()}")
 
-    # ── 原推数据
+    # ── 原推数据（p1 故意加长以触发长推分页）
     posts_by_id = {
         "p1": {
             "id": "p1",
             "content": (
                 "NVDA supply constraints continue to be severe. "
                 "Data center demand is accelerating faster than TSMC can expand CoWoS capacity. "
-                "This gap isn't going away anytime soon."
+                "I've been closely watching TSMC's CoWoS utilization rates, and they remain "
+                "at near 100% for most of 2025. The H200 and B200 allocation queues are still "
+                "6-9 months out for most hyperscalers. Even with N3P ramping and N2 on the "
+                "horizon, there's no sign the packaging gap is closing — and that's the real "
+                "bottleneck, not the logic node itself. CoWoS substrate expansion typically "
+                "lags leading-edge logic by 18-24 months. So even if TSMC ramps logic capacity "
+                "next year, packaging will remain the binding constraint. "
+                "I think this structural shortage persists well into 2026."
             ),
             "translation": (
-                "英伟达供给瓶颈依然严峻。数据中心需求的增速已远超台积电 CoWoS 封装产能的扩张速度，"
-                "Serenity 认为这一缺口短期内难以消除。"
+                "英伟达供给瓶颈依然严峻，短期内看不到改善迹象。"
+                "数据中心需求的增速已远超台积电 CoWoS 封装产能的扩张速度。"
+                "Serenity 密切跟踪台积电 CoWoS 利用率，2025 年大部分时间维持在接近 100%。"
+                "H200 和 B200 的配额队列对大多数超大规模云厂商仍长达 6 至 9 个月。"
+                "即便台积电 N3P 工艺持续爬坡、N2 节点已在路线图上，"
+                "封装端的缺口仍未见收窄——这才是整个供应链的真正瓶颈，而非逻辑制程本身。"
+                "从供应链角度来看，CoWoS 封装基板的扩产周期通常比主流制造工艺慢 18 至 24 个月。"
+                "因此即便台积电明年逻辑产能提升，封装端仍将是约束整个供应链的核心环节。"
+                "Serenity 判断这一结构性短缺将持续到 2026 年年底甚至更久。"
             ),
         },
         "p2": {
@@ -674,17 +688,21 @@ def _run_mock() -> None:
         },
     }
 
-    # ── 帖子 1：正常，2 张内容卡（NVDA 供给 + 美联储分歧）
+    # ── 帖子 1：2 条推（p1 长推会触发分页 + p2 短推）
     card1 = ContentCard(
         source_post_id="p1",
         heading="NVDA 供给缺口短期难解",
         points=["数据中心需求持续加速增长", "台积电扩产计划明显滞后"],
         tickers=[{"symbol": "NVDA", "stance": "bullish"}],
+        full_original=posts_by_id["p1"]["content"],
+        full_translation=posts_by_id["p1"]["translation"],
     )
     card2 = ContentCard(
         source_post_id="p2",
         heading="美联储分歧加剧方向难判",
         points=["鹰派主张维持利率不变", "鸽派指向就业数据走软", "Serenity 认为观望期至少两个月"],
+        full_original=posts_by_id["p2"]["content"],
+        full_translation=posts_by_id["p2"]["translation"],
     )
     plan1 = PostPlan(
         title="白毛股神6.10盘前｜供给告急美联储同步撕裂【1】",
@@ -713,6 +731,8 @@ def _run_mock() -> None:
         heading="AMD 市占提升估值中性",
         points=["企业级 AI 推理市场份额增长", "Serenity 对估值保持中性立场"],
         tickers=[{"symbol": "AMD", "stance": "neutral"}],
+        full_original=posts_by_id["p3"]["content"],
+        full_translation=posts_by_id["p3"]["translation"],
     )
     plan2 = PostPlan(
         title="白毛股神6.10盘前｜AMD市占涨Serenity估值中性【2】",
@@ -733,7 +753,7 @@ def _run_mock() -> None:
         needs_human_edit=True,
     )
 
-    # ── 渲染图片
+    # ── 渲染图片（使用 render_tweet_cards 替换 render_card）
     rendered: List[RenderedPlan] = []
     for pi, (plan, cards) in enumerate(
         [(plan1, [card1, card2]), (plan2, [card3])]
@@ -742,12 +762,15 @@ def _run_mock() -> None:
         render_cover(plan, cover_path, run_date=run_date)
         print(f"  cover: {cover_path.name}")
 
-        card_paths = []
+        card_paths: List[Path] = []
         for ci, card in enumerate(cards):
-            cp = out_dir / f"p{pi+1}_0{ci+2}_card.png"
-            render_card(card, cp, run_date=run_date, session=plan.session)
-            print(f"  card:  {cp.name}")
-            card_paths.append(cp)
+            tc_paths = render_tweet_cards(
+                card, out_dir, f"p{pi+1}_c{ci+1:02d}",
+                run_date=run_date, session=plan.session,
+            )
+            card_paths.extend(tc_paths)
+            for p in tc_paths:
+                print(f"  card:  {p.name}")
 
         tail_path = out_dir / f"p{pi+1}_tail.png"
         render_tail(tail_path)

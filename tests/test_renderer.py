@@ -187,3 +187,58 @@ def test_render_card_three_stance_badges(tmp_path):
     out = tmp_path / "card_stances.png"
     render_card(card, out, run_date=RUN_DATE, session="盘前")
     _assert_png(out)
+
+
+# ── render_tweet_cards 测试 ───────────────────────────────────────────────────
+
+from xhs_renderer import render_tweet_cards  # noqa: E402
+
+
+def test_render_tweet_cards_short_single_page(tmp_path):
+    """短翻译文本应只生成一张 PNG。"""
+    card = ContentCard(
+        source_post_id="t_short",
+        heading="AMD 市占提升",
+        points=[],
+        full_original="AMD gained market share in AI inference.",
+        full_translation="AMD 在 AI 推理市场取得可观份额，Serenity 保持中性立场。",
+        tickers=[{"symbol": "AMD", "stance": "neutral"}],
+    )
+    paths = render_tweet_cards(card, tmp_path, "tc_short", run_date=RUN_DATE, session="盘前")
+    assert len(paths) == 1
+    _assert_png(paths[0])
+
+
+def test_render_tweet_cards_long_translation_paginates(tmp_path):
+    """足够长的 full_translation 应分出 2 张或更多 PNG，且全部合法。"""
+    long_trans = "英伟达供给瓶颈依然严峻，短期内看不到改善迹象。CoWoS 封装基板扩产周期慢于逻辑制程。" * 20
+    card = ContentCard(
+        source_post_id="t_long",
+        heading="NVDA 供给分析",
+        points=[],
+        full_original="NVDA supply is structurally constrained through 2026.",
+        full_translation=long_trans,
+        tickers=[{"symbol": "NVDA", "stance": "bullish"}],
+    )
+    paths = render_tweet_cards(card, tmp_path, "tc_long", run_date=RUN_DATE, session="盘前")
+    assert len(paths) >= 2, f"expected >= 2 pages, got {len(paths)}"
+    for p in paths:
+        _assert_png(p)
+
+
+def test_render_tweet_cards_pathological_cap(tmp_path, monkeypatch):
+    """超出 MAX_CARDS_HARD 时强制截断，输出页数不超过上限。"""
+    import xhs_renderer
+    monkeypatch.setattr(xhs_renderer, "MAX_CARDS_HARD", 2)
+
+    very_long = "这是一段用于测试截断的超长翻译文本，" * 300
+    card = ContentCard(
+        source_post_id="t_cap",
+        heading="截断测试",
+        points=[],
+        full_translation=very_long,
+    )
+    paths = render_tweet_cards(card, tmp_path, "tc_cap", run_date=RUN_DATE, session="盘前")
+    assert len(paths) <= 2, f"expected <= 2 pages (capped), got {len(paths)}"
+    for p in paths:
+        _assert_png(p)

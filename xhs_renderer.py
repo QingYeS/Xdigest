@@ -6,6 +6,7 @@ xhs_renderer.py: 渲染小红书三类图片卡片（1080×1440 PNG）。
 公开接口:
     render_cover(plan, out_path, run_date=None)  -> Path
     render_card(card, out_path, run_date=None, session="")  -> Path
+    render_tweet_cards(card, out_dir, base_name, run_date=None, session="")  -> List[Path]
     render_tail(out_path, blogger=None)  -> Path
 
 运行 `python xhs_renderer.py --demo` 可生成全套示例图。
@@ -66,6 +67,15 @@ CONTENT_X   = 160
 DOT_SPACING = 56
 DOT_R       = 2
 MARGIN_X    = 140
+
+# ── render_tweet_cards 常量 ───────────────────────────────────────────────────
+MAX_CARDS_HARD: int = 16              # 单条推文分页上限，可被测试 monkeypatch
+_FONT_SIZE_STEPS: List[int] = [52, 48, 44, 40]
+_TEXT_LH_MAP: Dict[int, int] = {52: 74, 48: 69, 44: 63, 40: 57}
+_TC_CONTENT_TOP: int = 120            # 内容区起始 y（顶部标签下方）
+_TC_FOOTER_TOP: int = H - 90          # 页脚分隔线 y = 1350
+_TC_TOTAL_H: int = _TC_FOOTER_TOP - _TC_CONTENT_TOP  # 1230
+_TC_CONT_OVERHEAD: int = 80           # 续卡顶部小标题占用高度
 
 # ── 字体候选 ─────────────────────────────────────────────────────────────────
 _REPO_FONTS = Path(__file__).parent / "fonts"
@@ -574,6 +584,198 @@ def render_card(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _finalize(img).save(str(out_path), "PNG")
     return out_path
+
+
+# ── 长推分页辅助 ─────────────────────────────────────────────────────────────
+
+def _measure_quote_h(draw, text: str, usable: int) -> int:
+    """返回 _draw_quote_note 渲染 text 后 y 坐标的增量（包含底部 16px 间距）。"""
+    pad = 36
+    text_usable = usable - pad - (pad + 28)
+    lh = int(32 * 1.55)
+    lines = wrap_mixed_text(draw, _reg(32), text, text_usable) if False else \
+            wrap_mixed_text(draw, text, _reg(32), text_usable)
+    if len(lines) > 5:
+        lh = int(26 * 1.55)
+        lines = wrap_mixed_text(draw, text, _reg(26), text_usable)
+    n = min(len(lines), 6)
+    return lh * n + pad * 2 + 16
+
+
+def render_tweet_cards(
+    card: "ContentCard",
+    out_dir: Path,
+    base_name: str,
+    run_date: Optional[date] = None,
+    session: str = "",
+) -> List[Path]:
+    """将一条推文的完整内容（full_original + full_translation）渲染为 1 至多张 PNG。
+
+    第 1 张：heading + 分隔线 + ticker 徽章 + full_original 便利贴 + full_translation 流式文本。
+    续张：顶部小标题引用 + 「第 N 张」角标 + 续文本；不再显示 ticker 徽章。
+    超过 MAX_CARDS_HARD 时截断并在末页追加省略说明。
+    """
+    from PIL import Image as _Image, ImageDraw as _ImageDraw  # noqa: F401
+
+    if run_date is None:
+        run_date = date.today()
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── 测量阶段（不写图）──────────────────────────────────────────────────
+    img_m = _Image.new("RGBA", (W, H), BG)
+    draw_m = _ImageDraw.Draw(img_m)
+    usable = W - CONTENT_X - MARGIN
+
+    # Heading
+    heading_text = _strip_emoji(card.heading)
+    f_head = _bold(58)
+    head_lines = _balanced_wrap(draw_m, heading_text, f_head, usable)
+    if len(head_lines) > 3:
+        f_head = _bold(52)
+        head_lines = _balanced_wrap(draw_m, heading_text, f_head, usable)
+    head_lh = int(f_head.size * 1.35)
+
+    display_tickers = _filter_display_tickers(card.heading, card.tickers)
+
+    # 第 1 页固定开销：heading + gap + sep + tickers
+    p1_overhead = (
+        _text_height(head_lines, head_lh) + 32
+        + 36
+        + (52 if display_tickers else 0)
+    )
+    orig_text = _strip_emoji(card.full_original) if card.full_original else ""
+    if orig_text:
+        p1_overhead += _measure_quote_h(draw_m, orig_text, usable) + 20
+
+    p1_avail = _TC_TOTAL_H - p1_overhead
+    pc_avail = _TC_TOTAL_H - _TC_CONT_OVERHEAD
+
+    full_trans = _strip_emoji(card.full_translation) if card.full_translation else ""
+
+    # ── 选字号并分页 ────────────────────────────────────────────────────────
+    result_lines: List[List[str]] = []
+    chosen_fs = 40
+    chosen_lh = _TEXT_LH_MAP[40]
+
+    for fs in _FONT_SIZE_STEPS:
+        lh = _TEXT_LH_MAP[fs]
+        all_lines = wrap_mixed_text(draw_m, full_trans, _reg(fs), usable) if full_trans else []
+        lpp1 = max(0, p1_avail // lh)
+        lppc = max(1, pc_avail // lh)
+
+        pages: List[List[str]] = []
+        remaining = list(all_lines)
+        pages.append(remaining[:lpp1])
+        remaining = remaining[lpp1:]
+        while remaining:
+            pages.append(remaining[:lppc])
+            remaining = remaining[lppc:]
+        if not pages:
+            pages = [[]]
+
+        if len(pages) <= MAX_CARDS_HARD:
+            result_lines = pages
+            chosen_fs = fs
+            chosen_lh = lh
+            break
+    else:
+        # 最小字号仍超出上限 — 强制截断
+        lh = _TEXT_LH_MAP[40]
+        all_lines = wrap_mixed_text(draw_m, full_trans, _reg(40), usable) if full_trans else []
+        lpp1 = max(0, p1_avail // lh)
+        lppc = max(1, pc_avail // lh)
+        pages = []
+        remaining = list(all_lines)
+        pages.append(remaining[:lpp1])
+        remaining = remaining[lpp1:]
+        while remaining and len(pages) < MAX_CARDS_HARD:
+            pages.append(remaining[:lppc])
+            remaining = remaining[lppc:]
+        if remaining:
+            pages[-1] = list(pages[-1]) + ["……（内容已截断）"]
+        if not pages:
+            pages = [[]]
+        result_lines = pages
+        chosen_fs = 40
+        chosen_lh = lh
+
+    f_txt = _reg(chosen_fs)
+    lh = chosen_lh
+    n_pages = len(result_lines)
+    paths: List[Path] = []
+
+    # ── 逐页渲染 ────────────────────────────────────────────────────────────
+    for page_idx, page_text_lines in enumerate(result_lines):
+        page_no = page_idx + 1
+        suffix = f"_tc{page_no:02d}" if n_pages > 1 else "_tc"
+        out_path = out_dir / f"{base_name}{suffix}.png"
+
+        img, draw = _canvas()
+        _draw_dot_grid(draw)
+        _draw_margin_line(draw)
+
+        # 右上角标签
+        f_tag = _reg(30)
+        tag = f"{session}  {run_date.month}.{run_date.day}" if session else f"{run_date.month}.{run_date.day}"
+        tw = int(draw.textlength(tag, font=f_tag))
+        draw.text((W - MARGIN - tw, 36), tag, font=f_tag, fill=SUBINK)
+
+        if page_no > 1:
+            part_tag = f"第 {page_no} 张"
+            ptw = int(draw.textlength(part_tag, font=f_tag))
+            draw.text((W - MARGIN - ptw, 74), part_tag, font=f_tag, fill=SUBINK)
+
+        y = _TC_CONTENT_TOP
+
+        if page_no == 1:
+            # Heading + highlight
+            last_line = head_lines[-1]
+            last_w = int(draw.textlength(last_line, font=f_head))
+            _draw_highlight(img, draw, CONTENT_X, y + head_lh * (len(head_lines) - 1), last_w, head_lh, session)
+            y = _text_block(draw, head_lines, f_head, CONTENT_X, y, INK, head_lh)
+            y += 32
+
+            draw.line([CONTENT_X, y, W - MARGIN, y], fill=(200, 196, 188, 255), width=1)
+            y += 36
+
+            if display_tickers:
+                tx = CONTENT_X
+                for t in display_tickers:
+                    tx = _draw_ticker_badge(draw, f"${t['symbol']}", t.get("stance", "neutral"), tx, y)
+                y += 52
+
+            if orig_text:
+                y = _draw_quote_note(img, draw, orig_text, CONTENT_X, y, usable)
+                y += 20
+        else:
+            # 续卡：小字 heading 引用（SUBINK，截断到单行）
+            f_cont = _bold(42)
+            cont_label = heading_text
+            while cont_label and draw.textlength(cont_label + "…", font=f_cont) > usable - 80:
+                cont_label = cont_label[:-1]
+            if cont_label != heading_text:
+                cont_label = cont_label + "…"
+            draw.text((CONTENT_X, y), cont_label, font=f_cont, fill=SUBINK)
+            y += _TC_CONT_OVERHEAD
+
+        # 流式文本
+        for line in page_text_lines:
+            if y + lh > _TC_FOOTER_TOP:
+                break
+            draw.text((CONTENT_X, y), line, font=f_txt, fill=INK)
+            y += lh
+
+        # 页脚
+        f_foot = _reg(26)
+        foot_y = H - 72
+        draw.line([CONTENT_X, foot_y - 18, W - MARGIN, foot_y - 18], fill=(200, 196, 188, 255), width=1)
+        draw.text((CONTENT_X, foot_y), "白毛股神 / Serenity @aleabitoreddit", font=f_foot, fill=SUBINK)
+
+        _finalize(img).save(str(out_path), "PNG")
+        paths.append(out_path)
+
+    return paths
 
 
 # ── 尾页 ──────────────────────────────────────────────────────────────────────
