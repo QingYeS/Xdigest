@@ -11,6 +11,10 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 COOKIES_FILE = os.path.join(os.path.dirname(__file__), "x_cookies.json")
 SEEN_POSTS_FILE = os.path.join(os.path.dirname(__file__), "seen_posts.json")
 
+# True(默认): 抓取后立即收敛到 TRACKED_BLOGGERS，邮件和 xhs 共享同一批源内容
+# False: 保留旧行为，分析全部金融推，仅 xhs 阶段用 filter_tracked 收敛
+FILTER_SOURCE_GLOBALLY = os.environ.get("FILTER_SOURCE_GLOBALLY", "true").lower() != "false"
+
 FINANCE_KEYWORDS = {
     # English
     "invest", "stock", "market", "portfolio", "trade", "trading", "fund",

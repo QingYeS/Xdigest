@@ -56,6 +56,12 @@ Serenity (@aleabitoreddit),中文圈称「白毛股神」。
   窗口内她没有新推就跳过,不硬发。固定节奏培养用户「开盘前来看一眼」的习惯。
 - **周末总结**:周日跑 weekly 模式,汇总一周内容生成「本周回顾」。
   总结帖是收藏向内容,收藏率在小红书算法中权重高。
+- **内容源真相来源**:`blogger_config.py` 中的 `TRACKED_BLOGGERS` 是唯一的博主
+  配置源。`FILTER_SOURCE_GLOBALLY=true`(默认)时,`run()` 在抓取后立即收敛,
+  邮件和小红书共享同一批目标源内容,Groq 分析只处理跟踪博主的推文。
+  未来新增博主只需在 `TRACKED_BLOGGERS` 加一条记录并设 `enabled=True`,
+  邮件与小红书两个下游自动覆盖,无需改逻辑层。
+  若需让邮件看全关注列表、仅小红书收敛,将 `FILTER_SOURCE_GLOBALLY` 设为 `false`。
 - **扩展性**:未来会引入更多博主。代码中博主信息(名称、handle、中文称呼)
   必须配置化,不得硬编码「白毛股神」到逻辑里。
 
@@ -206,3 +212,4 @@ Pillow               # 图片渲染(新增,随 xhs_renderer 引入)
 | `XHS_MAX_TWEETS_PER_POST` | 每帖推文数量软上限,默认 `3` | 新增 |
 | `XHS_FONT_BOLD` | 粗体字体路径(可选覆盖) | 新增 |
 | `XHS_FONT_REGULAR` | 常规字体路径(可选覆盖) | 新增 |
+| `FILTER_SOURCE_GLOBALLY` | `true`(默认)=抓取后立即收敛到 TRACKED_BLOGGERS;`false`=分析全部金融推 | 新增 |

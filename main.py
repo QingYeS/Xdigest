@@ -3,6 +3,7 @@
 X 投资动态摘要主程序
 每次运行：调用 X 内部 API → 过滤投资相关 → 去重 → Groq 分析 → 发送邮件
 """
+import argparse
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -16,7 +17,9 @@ from scraper import scrape_following_feed
 from analyzer import analyze_posts
 from emailer import send_digest
 from archive import append_posts, prune
-from config import SEEN_POSTS_FILE, GMAIL_USER, GMAIL_APP_PASSWORD, RECIPIENT_EMAIL
+from blogger_config import filter_tracked
+from xhs_pipeline import generate_xhs
+from config import SEEN_POSTS_FILE, GMAIL_USER, GMAIL_APP_PASSWORD, RECIPIENT_EMAIL, FILTER_SOURCE_GLOBALLY
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo  # 系统本地时区
 SEEN_EXPIRY_DAYS = 7
@@ -42,22 +45,34 @@ def _prune_seen(seen: dict) -> dict:
     }
 
 
-def run():
+def run(no_email: bool = False, force: bool = False):
     print(f"[{datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M %Z')}] 开始抓取 X Following Feed...")
 
     posts = scrape_following_feed()
-    seen = _prune_seen(_load_seen())
-    new_posts = [p for p in posts if p["id"] not in seen]
-    print(f"去重后剩余 {len(new_posts)} 条新帖子")
+
+    if FILTER_SOURCE_GLOBALLY:
+        tracked = filter_tracked(posts)
+        posts = [p for ps in tracked.values() for p in ps]
+        print(f"  全局过滤后剩余 {len(posts)} 条 (TRACKED_BLOGGERS)")
+
+    if force:
+        new_posts = posts
+        print(f"--force 模式：跳过去重，处理全部 {len(new_posts)} 条帖子")
+    else:
+        seen = _prune_seen(_load_seen())
+        new_posts = [p for p in posts if p["id"] not in seen]
+        print(f"去重后剩余 {len(new_posts)} 条新帖子")
 
     if not new_posts:
-        send_digest([])
+        if not no_email:
+            send_digest([])
         return
 
     print("正在用 Groq 分析帖子...")
     analyzed = analyze_posts(new_posts)
 
-    send_digest(analyzed)
+    if not no_email:
+        send_digest(analyzed)
 
     try:
         append_posts(analyzed)
@@ -65,10 +80,18 @@ def run():
     except Exception as archive_err:
         print(f"[archive] 写入失败(不影响邮件): {archive_err}")
 
-    now_iso = datetime.now(timezone.utc).isoformat()
-    for p in new_posts:
-        seen[p["id"]] = now_iso
-    _save_seen(seen)
+    try:
+        session_str = "盘前" if datetime.now(LOCAL_TZ).hour < 12 else "盘后"
+        out_path = generate_xhs(analyzed, session_str)
+        print(f"[xhs] 输出: {out_path}")
+    except Exception as xhs_err:
+        print(f"[xhs] 生成失败(不影响邮件): {xhs_err}")
+
+    if not force:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for p in new_posts:
+            seen[p["id"]] = now_iso
+        _save_seen(seen)
     print("✓ 完成")
 
 
@@ -103,8 +126,12 @@ def _send_error_alert(error: Exception):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-email", action="store_true", help="跳过邮件发送（调试用）")
+    parser.add_argument("--force", action="store_true", help="跳过去重，强制处理所有帖子，不写 seen_posts（调试用）")
+    args = parser.parse_args()
     try:
-        run()
+        run(no_email=args.no_email, force=args.force)
     except Exception as e:
         print(f"❌ 运行出错: {e}")
         try:
