@@ -79,9 +79,9 @@ CLEAN_META = {
 
 
 def make_card_llm(heading: str = "测试标题"):
-    """返回固定卡片内容的 mock card_llm（返回 n_cards 张）。"""
-    def fn(post: dict, n_cards: int, rejected_phrases: Optional[List[str]] = None):
-        return [{"heading": f"{heading}{i+1}", "points": ["要点一", "要点二"]} for i in range(n_cards)]
+    """返回固定卡片内容的 mock card_llm（每条推返回 1 张卡）。"""
+    def fn(post: dict, rejected_phrases: Optional[List[str]] = None):
+        return {"heading": heading, "points": ["要点一", "要点二"]}
     return fn
 
 
@@ -111,7 +111,8 @@ def test_bin_packing_5_short_tweets_splits_by_max_tweets():
     assert len(plans[1].cards) == 2
 
 
-def test_long_tweet_generates_2_cards_single_plan():
+def test_long_tweet_generates_1_card_single_plan():
+    """长推也只生成 1 张 ContentCard；渲染溢出由 render_tweet_cards 分页处理。"""
     posts = [make_post("p1", translation=LONG_TRANSLATION)]
     plans = compose(
         posts, "盘后", BLOGGER,
@@ -120,7 +121,7 @@ def test_long_tweet_generates_2_cards_single_plan():
         plan_llm=make_plan_llm([CLEAN_META]),
     )
     assert len(plans) == 1
-    assert len(plans[0].cards) == 2
+    assert len(plans[0].cards) == 1
 
 
 def test_short_tweet_generates_1_card_single_plan():
@@ -171,12 +172,12 @@ def test_card_banned_phrase_in_points_triggers_retry_with_reason():
     received_rejections = []
     call_count = [0]
 
-    def dirty_then_clean(post, n_cards, rejected_phrases=None):
+    def dirty_then_clean(post, rejected_phrases=None):
         received_rejections.append(rejected_phrases)
         call_count[0] += 1
         if call_count[0] == 1:
-            return [{"heading": "市场分析", "points": ["建议做多 $NVDA", "另一要点"]}]
-        return [{"heading": "市场分析", "points": ["Serenity 看好科技股", "另一要点"], "tickers": []}]
+            return {"heading": "市场分析", "points": ["建议做多 $NVDA", "另一要点"]}
+        return {"heading": "市场分析", "points": ["Serenity 看好科技股", "另一要点"], "tickers": []}
 
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
@@ -289,11 +290,11 @@ def test_scan_card_violations_detects_pronouns():
 def test_card_pronoun_in_points_triggers_retry_succeeds():
     call_count = [0]
 
-    def pronoun_then_clean(post, n_cards, rejected_phrases=None):
+    def pronoun_then_clean(post, rejected_phrases=None):
         call_count[0] += 1
         if call_count[0] == 1:
-            return [{"heading": "市场分析", "points": ["她认为英伟达前景乐观", "要点二"], "tickers": []}]
-        return [{"heading": "市场分析", "points": ["Serenity 认为英伟达前景乐观", "要点二"], "tickers": []}]
+            return {"heading": "市场分析", "points": ["她认为英伟达前景乐观", "要点二"], "tickers": []}
+        return {"heading": "市场分析", "points": ["Serenity 认为英伟达前景乐观", "要点二"], "tickers": []}
 
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
@@ -335,9 +336,9 @@ def test_split_plans_plan_llm_called_per_bin_with_correct_cards():
 # ── 17: ticker stance 数据流 ─────────────────────────────────────────────────
 
 def test_card_tickers_neutral_stance_flows_through():
-    def neutral_card_llm(post, n_cards, rejected_phrases=None):
-        return [{"heading": "英伟达市场走势", "points": ["市场观望情绪浓厚", "短期方向不明朗"],
-                 "tickers": [{"symbol": "NVDA", "stance": "neutral"}]}]
+    def neutral_card_llm(post, rejected_phrases=None):
+        return {"heading": "英伟达市场走势", "points": ["市场观望情绪浓厚", "短期方向不明朗"],
+                "tickers": [{"symbol": "NVDA", "stance": "neutral"}]}
 
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
@@ -398,14 +399,13 @@ def test_split_plans_second_plan_receives_first_plan_cover_subline():
 
 def test_tweet_group_atomicity_not_split_across_bins(monkeypatch):
     """
-    翻译超长（>240字）的推生成 3 张卡；装箱时这 3 张卡必须完整归属同一帖。
+    无论推多长，每条推只生成 1 张卡；装箱时这 1 张卡完整归属同一帖。
     设 MAX_TWEETS=2 强制在第 3 条推处开新帖，验证卡组未被切断。
     """
     import xhs_composer
     monkeypatch.setattr(xhs_composer, "MAX_TWEETS", 2)
 
-    # pA: 3 cards (translation > 240 chars)
-    # pB, pC: 1 card each
+    # pA, pB, pC: 各 1 张卡（超长译文不再影响卡数）
     posts = [
         make_post("pA", translation="测" * 250),
         make_post("pB"),
@@ -417,13 +417,13 @@ def test_tweet_group_atomicity_not_split_across_bins(monkeypatch):
         card_llm=make_card_llm(),
         plan_llm=make_plan_llm([CLEAN_META]),
     )
-    # bins: [pA(3), pB(1)] → 2 tweets, [pC(1)] → 1 tweet
+    # bins: [pA(1), pB(1)] → 2 tweets, [pC(1)] → 1 tweet
     assert len(plans) == 2
 
     pA_in_p0 = [c for c in plans[0].cards if c.source_post_id == "pA"]
     pA_in_p1 = [c for c in plans[1].cards if c.source_post_id == "pA"]
-    assert len(pA_in_p0) == 3   # all 3 pA cards in plan 0
-    assert len(pA_in_p1) == 0   # none split into plan 1
+    assert len(pA_in_p0) == 1   # pA 的 1 张卡完整归属 plan 0
+    assert len(pA_in_p1) == 0   # 未被切入 plan 1
 
 
 # ── 21: 硬上限 ────────────────────────────────────────────────────────────────

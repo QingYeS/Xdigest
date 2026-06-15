@@ -84,16 +84,16 @@ _PLAN_SYSTEM = """\
 # ── Groq LLM 工厂 ───────────────────────────────────────────────────────────
 
 def _make_card_llm(client, model: str):
-    def card_llm(post: dict, n_cards: int, rejected_phrases=None) -> list:
+    def card_llm(post: dict, rejected_phrases=None) -> dict:
         reject_note = (
             f"\n\n上次生成命中禁词 {rejected_phrases}，请避免。"
             if rejected_phrases else ""
         )
         prompt = (
-            f"请将以下推文改编为 {n_cards} 张小红书信息卡片。\n\n"
+            f"请将以下推文改编为一张小红书信息卡片。\n\n"
             f"英文原文:\n{post.get('content', '')}\n\n"
             f"中文翻译:\n{post.get('translation', '')}\n\n"
-            f"输出 JSON 数组，共 {n_cards} 个对象，每个含:\n"
+            f"输出单个 JSON 对象，含:\n"
             '- "heading": 卡片标题(≤14字)\n'
             '- "points": 要点列表(2-4条，每条≤24字)\n'
             '- "tickers": [{"symbol":"XXX","stance":"bullish|bearish|neutral"}]'
@@ -111,7 +111,7 @@ def _make_card_llm(client, model: str):
                     max_tokens=1024,
                 )
                 raw = resp.choices[0].message.content.strip()
-                return _extract_json_array(raw)
+                return _extract_json_object(raw)
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower():
                     wait = 20 * (attempt + 1)
@@ -337,15 +337,12 @@ def _run_mock(session: str = "盘前") -> Path:
 
     _call_idx = [0]
 
-    def _stub_card_llm(post: dict, n_cards: int, rejected_phrases=None) -> list:
-        return [
-            {
-                "heading": f"mock 卡{i+1}标题",
-                "points": ["Serenity 关注市场核心动向", "短期不确定性仍存"],
-                "tickers": [],
-            }
-            for i in range(n_cards)
-        ]
+    def _stub_card_llm(post: dict, rejected_phrases=None) -> dict:
+        return {
+            "heading": "mock 卡标题",
+            "points": ["Serenity 关注市场核心动向", "短期不确定性仍存"],
+            "tickers": [],
+        }
 
     def _stub_plan_llm(cards, session_: str, prior_summaries=None, rejected_phrases=None) -> dict:
         _call_idx[0] += 1

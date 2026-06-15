@@ -5,9 +5,10 @@ xhs_composer: 把一个时间窗内目标博主的多条推合成若干 PostPlan
     compose(posts, session, blogger, run_date, card_llm, plan_llm) -> list[PostPlan]
 
 LLM 接口(可注入,便于测试):
-    card_llm(post, n_cards, rejected_phrases=None) -> list[dict]
-        每个 dict: {"heading": str, "points": list[str],
-                    "tickers": list[{"symbol": str, "stance": str}]}
+    card_llm(post, rejected_phrases=None) -> dict
+        dict: {"heading": str, "points": list[str],
+               "tickers": list[{"symbol": str, "stance": str}]}
+        每条推固定生成 1 张 ContentCard；渲染溢出分页由 render_tweet_cards 处理。
         stance ∈ {bullish, bearish, neutral}；仅原推有明确方向时标 bullish/bearish，其余 neutral
         heading/points 中指代博主一律用名字（Serenity），禁用「她」「他」
         rejected_phrases: 上次被拒绝的禁词列表(重试时传入,让 LLM 知道原因)
@@ -91,13 +92,8 @@ def scan_card_violations(text: str) -> List[str]:
 
 
 def estimate_cards(post: dict) -> int:
-    """粗略估算一条推需要几张内容卡（按译文字数，不依赖渲染）。"""
-    n = len(post.get("translation", ""))
-    if n <= LONG_TWEET_THRESHOLD:
-        return 1
-    if n <= LONG_TWEET_THRESHOLD * 2:
-        return 2
-    return 3
+    """一条推恒定对应 1 张 ContentCard；渲染溢出分页由 render_tweet_cards 处理。"""
+    return 1
 
 
 def _build_title(
@@ -121,9 +117,8 @@ def _assemble_caption(body: str, hashtags: List[str]) -> str:
 
 def _default_card_llm(
     post: dict,
-    n_cards: int,
     rejected_phrases: Optional[List[str]] = None,
-) -> List[dict]:
+) -> dict:
     raise NotImplementedError("Groq card LLM not yet wired up — pass card_llm= for testing")
 
 
@@ -143,37 +138,32 @@ def _gen_cards_with_validation(
     card_llm: Callable,
 ) -> Tuple[List[ContentCard], bool]:
     """
-    为单条推生成 ContentCard(s),并对 heading/points 做禁词校验。
-    命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 card_llm。
-    返回 (cards, needs_human_edit)。
+    为单条推生成 1 张 ContentCard，并对 heading/points 做禁词校验。
+    命中禁词时最多重试 2 次，重试时把被拒绝的禁词传给 card_llm。
+    返回 ([card], needs_human_edit)。
     """
-    n_cards = estimate_cards(post)
-    last_cards: List[ContentCard] = []
+    last_card: Optional[ContentCard] = None
     rejected: Optional[List[str]] = None
 
     for attempt in range(3):  # 初次 + 最多 2 次重试
-        raw = card_llm(post, n_cards, rejected_phrases=rejected)
-        cards = [
-            ContentCard(
-                source_post_id=post["id"],
-                heading=r["heading"],
-                points=list(r["points"]),
-                part=i + 1,
-                tickers=list(r.get("tickers", [])),
-                full_original=post.get("content", ""),
-                full_translation=post.get("translation", ""),
-            )
-            for i, r in enumerate(raw[:n_cards])
-        ]
-        card_text = "".join(c.heading + "".join(c.points) for c in cards)
-        hits = scan_card_violations(card_text)
+        raw = card_llm(post, rejected_phrases=rejected)
+        card = ContentCard(
+            source_post_id=post["id"],
+            heading=raw["heading"],
+            points=list(raw["points"]),
+            part=1,
+            tickers=list(raw.get("tickers", [])),
+            full_original=post.get("content", ""),
+            full_translation=post.get("translation", ""),
+        )
+        hits = scan_card_violations(card.heading + "".join(card.points))
         if not hits:
-            return cards, False
+            return [card], False
         rejected = hits
-        last_cards = cards
+        last_card = card
         print(f"[composer] card violation {hits}, retry {attempt + 1}/2")
 
-    return last_cards, True
+    return [last_card], True
 
 
 def _gen_plan_meta(
@@ -347,11 +337,8 @@ def _debug_pack() -> None:
 
     call_idx = [0]
 
-    def stub_card_llm(post, n_cards, rejected_phrases=None):
-        return [
-            {"heading": f"{post['id']} 标题{i+1}", "points": ["要点一", "要点二"]}
-            for i in range(n_cards)
-        ]
+    def stub_card_llm(post, rejected_phrases=None):
+        return {"heading": f"{post['id']} 标题", "points": ["要点一", "要点二"]}
 
     def stub_plan_llm(cards, session, prior_summaries=None, rejected_phrases=None):
         call_idx[0] += 1

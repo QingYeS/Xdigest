@@ -83,34 +83,29 @@ def _make_cached_card_llm(real_card_llm, cache: dict, run_date: date, refresh: b
     - 重试调用（rejected_phrases 不为 None）：透传真实 card_llm，不读写缓存
       （避免将含禁词的内容存入缓存）
     """
-    def cached(post, n_cards, rejected_phrases=None):
+    def cached(post, rejected_phrases=None):
         post_id = post["id"]
         is_retry = rejected_phrases is not None
 
         if not is_retry and not refresh and post_id in cache:
             print(f"[sidecar] 命中缓存 post_id={post_id}，跳过 card_llm")
-            return [
-                {"heading": c.heading, "points": c.points, "tickers": c.tickers}
-                for c in cache[post_id]
-            ]
+            c = cache[post_id][0]
+            return {"heading": c.heading, "points": c.points, "tickers": c.tickers}
 
-        raw = real_card_llm(post, n_cards, rejected_phrases=rejected_phrases)
+        raw = real_card_llm(post, rejected_phrases=rejected_phrases)
 
         # 只在第一次调用时写入缓存，重试调用不覆写
         if not is_retry:
-            cards = [
-                ContentCard(
-                    source_post_id=post_id,
-                    heading=r["heading"],
-                    points=list(r["points"]),
-                    part=i + 1,
-                    tickers=list(r.get("tickers", [])),
-                    full_original=post.get("content", ""),
-                    full_translation=post.get("translation", ""),
-                )
-                for i, r in enumerate(raw[:n_cards])
-            ]
-            cache[post_id] = cards
+            card = ContentCard(
+                source_post_id=post_id,
+                heading=raw["heading"],
+                points=list(raw["points"]),
+                part=1,
+                tickers=list(raw.get("tickers", [])),
+                full_original=post.get("content", ""),
+                full_translation=post.get("translation", ""),
+            )
+            cache[post_id] = [card]
             _write_sidecar(run_date, cache)
 
         return raw
