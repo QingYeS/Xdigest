@@ -74,10 +74,14 @@ _PLAN_SYSTEM = """\
 严格规则:
 1. cover_headline ≤ 12 字，优先用「白毛股神」作主语（排版考量，英文名在封面大字号下易断行）
 2. hook ≤ 10 字，直接抓眼球
-3. cover_subline 为多行 bullet，每条推一行（以「- 」开头）
+3. cover_subline 为字符串列表，每条推一个元素（以「- 」开头）
+   每行必须是语法通顺的完整句子，逻辑连贯、读起来自然，不是关键词或短语堆叠
    每行必须点名该推的主体 ticker（如 $AAOI），精炼且有信息量，每行 ≤32 字
    质量优先——不以字数为主要约束，但要避免啰嗦；分割帖之间整体必须不同
-   正例:「- $AAOI 国内冠军崛起，AI 基建供应链回流美国」
+   主语：不要重复封面主标题里已有的「Serenity」；需要点明观点归属时可用「白毛股神」，
+         但不强制每行都带主语，怎样自然通顺怎样来，避免多行时千篇一律的固定开头
+   正例:「- 白毛股神看好 $AAOI 在 AI 基建供应链回流中的机会」
+   反例（关键词堆叠不通顺）:「- $AAOI 国内冠军崛起，AI 基建供应链回流美国」
    反例（空泛无主体）:「- 市场波动迎来机会」
    反例（荐股操作词）:「- $AAOI 建仓良机，目标价上看」
 4. caption_body 口语化，≤ 300 字，不加免责声明（系统自动追加）
@@ -165,8 +169,8 @@ def _make_plan_llm(client, model: str):
             f"发帖时段: {session}\n\n"
             f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
-            + '\n\n严格按 JSON 输出（cover_subline 是多行字符串，用 \\n 分隔各行，不是数组）:\n'
-            '{"hook":"...","cover_headline":"...","cover_subline":"- $XXX ...\n- $YYY ...",'
+            + '\n\n严格按 JSON 输出（cover_subline 是字符串列表，每条推一个元素）:\n'
+            '{"hook":"...","cover_headline":"...","cover_subline":["- $AAOI ...","- $SPX ..."],'
             '"caption_body":"...","hashtags":["..."]}'
         )
         for attempt in range(3):
@@ -181,7 +185,12 @@ def _make_plan_llm(client, model: str):
                     max_tokens=800,
                 )
                 raw = resp.choices[0].message.content.strip()
-                return _extract_json_object(raw)
+                result = _extract_json_object(raw)
+                # 把 cover_subline 从列表 join 为字符串（LLM 应返回列表，做防御性兼容）
+                subline = result.get("cover_subline", "")
+                if isinstance(subline, list):
+                    result["cover_subline"] = "\n".join(str(s) for s in subline)
+                return result
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower():
                     wait = 20 * (attempt + 1)
