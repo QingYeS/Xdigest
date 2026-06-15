@@ -16,7 +16,7 @@ import os
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import List
+from typing import Callable, List, Optional
 
 from blogger_config import filter_tracked, get_blogger
 
@@ -216,6 +216,7 @@ def generate_xhs(
     session: str,
     *,
     mock: bool = False,
+    card_llm: Optional[Callable] = None,
 ) -> Path:
     """
     编排入口：analyzed posts → composer → renderer → preview HTML。
@@ -260,7 +261,7 @@ def generate_xhs(
         print(f"[xhs] 装箱 {handle}（{len(posts)} 条）...")
         plans = compose(
             posts, session, blogger, run_date=run_date,
-            card_llm=_make_card_llm(client, model),
+            card_llm=card_llm or _make_card_llm(client, model),
             plan_llm=_make_plan_llm(client, model),
         )
         print(f"[xhs] 生成 {len(plans)} 个 PostPlan")
