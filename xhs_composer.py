@@ -69,7 +69,7 @@ class ContentCard:
 class PostPlan:
     title: str              # 完整标题,含模板前缀与可选分割编号
     cover_headline: str     # ≤12 字
-    cover_subline: str      # ≤16 字,分割帖之间必须不同
+    cover_subline: str      # 多行 bullet(每行以「- 」开头)；每行约 ≤32 字(临时上限,渲染版面校准后精调)；质量优先,分割帖之间整体必须不同
     cards: List[ContentCard]
     caption: str            # 含话题标签 + 免责声明
     session: str            # "盘前" | "盘后" | "周报"

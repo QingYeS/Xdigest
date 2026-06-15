@@ -74,7 +74,12 @@ _PLAN_SYSTEM = """\
 严格规则:
 1. cover_headline ≤ 12 字，优先用「白毛股神」作主语（排版考量，英文名在封面大字号下易断行）
 2. hook ≤ 10 字，直接抓眼球
-3. cover_subline ≤ 16 字，概括本帖核心，分割帖之间必须不同
+3. cover_subline 为多行 bullet，每条推一行（以「- 」开头）
+   每行必须点名该推的主体 ticker（如 $AAOI），精炼且有信息量，每行 ≤32 字
+   质量优先——不以字数为主要约束，但要避免啰嗦；分割帖之间整体必须不同
+   正例:「- $AAOI 国内冠军崛起，AI 基建供应链回流美国」
+   反例（空泛无主体）:「- 市场波动迎来机会」
+   反例（荐股操作词）:「- $AAOI 建仓良机，目标价上看」
 4. caption_body 口语化，≤ 300 字，不加免责声明（系统自动追加）
 5. hashtags 3-6 个，不加 # 前缀
 6. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
@@ -124,11 +129,28 @@ def _make_card_llm(client, model: str):
     return card_llm
 
 
+def _primary_ticker(tickers: list) -> str:
+    """返回该推的主体 ticker 字符串（如 '$AAOI'）。
+    优先取 stance=bullish/bearish 的第一个，fallback 取 tickers[0]。"""
+    if not tickers:
+        return ""
+    primary = next(
+        (t for t in tickers if t.get("stance") in ("bullish", "bearish")),
+        tickers[0],
+    )
+    return f"${primary['symbol']}"
+
+
 def _make_plan_llm(client, model: str):
     def plan_llm(cards, session: str, prior_summaries=None, rejected_phrases=None) -> dict:
+        # 按 source_post_id 分组，取每推的第一张卡代表该推（副标题按推不按卡）
+        post_groups: dict = {}
+        for c in cards:
+            if c.source_post_id not in post_groups:
+                post_groups[c.source_post_id] = c
         card_summaries = "\n".join(
-            f"卡{i+1}: {c.heading} — {'; '.join(c.points)}"
-            for i, c in enumerate(cards)
+            f"推{i+1} [{_primary_ticker(c.tickers) or '无ticker'}]: {c.heading} — {'; '.join(c.points)}"
+            for i, c in enumerate(post_groups.values())
         )
         prior_note = (
             f"\n\n前帖副标题 {prior_summaries}，本帖必须不同。"
@@ -139,12 +161,12 @@ def _make_plan_llm(client, model: str):
             if rejected_phrases else ""
         )
         prompt = (
-            f"为以下 {len(cards)} 张内容卡生成发帖元数据。\n"
+            f"为以下 {len(post_groups)} 条推文生成发帖元数据。\n"
             f"发帖时段: {session}\n\n"
-            f"内容卡摘要:\n{card_summaries}"
+            f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
-            + '\n\n严格按 JSON 输出:\n'
-            '{"hook":"...","cover_headline":"...","cover_subline":"...",'
+            + '\n\n严格按 JSON 输出（cover_subline 是多行字符串，用 \\n 分隔各行，不是数组）:\n'
+            '{"hook":"...","cover_headline":"...","cover_subline":"- $XXX ...\n- $YYY ...",'
             '"caption_body":"...","hashtags":["..."]}'
         )
         for attempt in range(3):
