@@ -117,9 +117,13 @@ def _extract_tickers(text: str) -> List[str]:
 
 
 def _filter_display_tickers(heading: str, tickers: List[dict]) -> List[dict]:
-    """Remove tickers whose $SYMBOL already appears in heading text (redundant)."""
+    """Suppress neutral tickers already named in heading (redundant); always show bullish/bearish."""
     in_heading = set(_extract_tickers(heading))
-    return [t for t in tickers if t.get("symbol", "") not in in_heading]
+    return [
+        t for t in tickers
+        if t.get("stance") in ("bullish", "bearish")
+        or t.get("symbol", "") not in in_heading
+    ]
 
 
 # ── 字体加载 ─────────────────────────────────────────────────────────────────

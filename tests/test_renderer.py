@@ -142,16 +142,26 @@ def test_render_card_with_ticker_in_heading(tmp_path):
 
 
 def test_filter_display_tickers_removes_heading_symbols():
-    """heading 中已出现 $XXX 的 ticker 应被 filter 函数过滤。"""
+    """neutral ticker 在 heading 中已出现时应被过滤；bullish/bearish 始终保留。"""
     from xhs_renderer import _filter_display_tickers
+
+    # bullish 即使在 heading 里点名也不过滤（徽章有语义价值）
     heading = "$NVDA 供给缺口短期难解"
     tickers = [
         {"symbol": "NVDA", "stance": "bullish"},
         {"symbol": "AMD",  "stance": "neutral"},
     ]
     result = _filter_display_tickers(heading, tickers)
-    assert len(result) == 1
-    assert result[0]["symbol"] == "AMD"
+    assert len(result) == 2  # NVDA(bullish) 保留，AMD(neutral 不在 heading) 也保留
+
+    # neutral 在 heading 里点名时应被过滤
+    tickers2 = [
+        {"symbol": "NVDA", "stance": "neutral"},
+        {"symbol": "AMD",  "stance": "neutral"},
+    ]
+    result2 = _filter_display_tickers(heading, tickers2)
+    assert len(result2) == 1
+    assert result2[0]["symbol"] == "AMD"
 
 
 def test_wrap_mixed_text_english_word_stays_intact():
