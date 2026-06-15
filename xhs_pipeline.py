@@ -66,8 +66,19 @@ _CARD_SYSTEM = """\
 1. 指代博主一律用「Serenity」，绝对禁用「她」「他」「TA」
 2. 禁止出现以下措辞: 做多、做空、建仓、加仓、减仓、入场、点位、目标价、建议买入、建议卖出、买入、卖出
 3. 只转述博主观点（「Serenity 认为」「Serenity 看好」），不向读者发出操作建议
-4. heading ≤ 14 字，每条 point ≤ 24 字，points 共 2-4 条
-5. tickers 只标原推中明确提及的标的，stance 仅限 bullish/bearish/neutral"""
+4. heading ≤ 14 字，必须具体：点名主体（ticker / 公司 / 人物 / 事件 / 数字之一），
+   让读者一眼知道这条推在讲什么
+   禁止以下空泛词单独成标题：波动、机会、领军、趋势、关注（无主体的 heading 无效）
+   正例:「$AAOI 国内冠军与供应链回流」「普涨行情与伊朗局势降温」
+   反例:「市场波动」「投资机会」「值得关注」
+   每条 point ≤ 24 字，points 共 2-4 条
+5. tickers 只标原推中明确提及的标的，stance 仅限 bullish/bearish/neutral
+6. points 必须忠实于原推，不增补博主没说的观点
+   区分两种情况:
+   - 博主明确表达的看法 → 「Serenity 认为……」「Serenity 看好……」
+   - 博主陈述的事实或随口感叹 → 直接陈述事件，不安立场
+   反例（硬安观点）: 原推只感叹「这市场太波动了」→ 不可写「Serenity 认为市场波动性高」
+   正例（忠实还原）: 「Serenity 感叹市场波动剧烈」或「特朗普取消对伊朗攻击，大盘普涨」"""
 
 _PLAN_SYSTEM = """\
 你是小红书内容创作助手，负责为股票博主追踪帖子生成发帖元数据。
@@ -103,7 +114,7 @@ def _make_card_llm(client, model: str):
             f"英文原文:\n{post.get('content', '')}\n\n"
             f"中文翻译:\n{post.get('translation', '')}\n\n"
             f"输出单个 JSON 对象，含:\n"
-            '- "heading": 卡片标题(≤14字)\n'
+            '- "heading": 卡片标题(≤14字，必须点名主体——ticker/事件/人物，禁止空泛词)\n'
             '- "points": 要点列表(2-4条，每条≤24字)\n'
             '- "tickers": [{"symbol":"XXX","stance":"bullish|bearish|neutral"}]'
             + reject_note

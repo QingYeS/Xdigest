@@ -134,8 +134,9 @@ def main() -> None:
     parser.add_argument(
         "--only",
         metavar="POST_ID",
+        nargs="+",
         default=None,
-        help="只重跑指定 post_id 的帖子",
+        help="只重跑指定 post_id 的帖子（可传多个，空格分隔）",
     )
     parser.add_argument(
         "--refresh-cards",
@@ -158,9 +159,10 @@ def main() -> None:
     print(f"[regenerate] 读取 {args.date} archive，共 {len(posts)} 条")
 
     if args.only:
-        posts = [p for p in posts if p.get("id") == args.only]
+        id_set = set(args.only)
+        posts = [p for p in posts if p.get("id") in id_set]
         if not posts:
-            print(f"[regenerate] 未找到 post_id={args.only!r}，退出")
+            print(f"[regenerate] 未找到 post_id={args.only}，退出")
             sys.exit(1)
         print(f"[regenerate] --only 过滤后剩余 {len(posts)} 条")
 
