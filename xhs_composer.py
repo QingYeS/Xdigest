@@ -192,13 +192,16 @@ def _gen_plan_meta(
         )
         title = _build_title(raw["hook"], session, run_date, part_no)
         caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []))
+        date_str = f"{run_date.month}.{run_date.day}"
+        part_suffix = f"【{part_no}】" if part_no is not None else ""
+        cover_headline = f"Serenity {date_str}更新{part_suffix}"
         last = {
             "title": title,
-            "cover_headline": raw["cover_headline"],
+            "cover_headline": cover_headline,
             "cover_subline": raw["cover_subline"],
             "caption": caption,
         }
-        hits = scan_banned(title + raw["cover_headline"] + raw["cover_subline"] + caption)
+        hits = scan_banned(title + cover_headline + raw["cover_subline"] + caption)
         if not hits:
             return last, False
         rejected = hits
