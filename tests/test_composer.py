@@ -247,6 +247,21 @@ def test_plan_llm_receives_rejection_reason_on_retry():
 
 # ── 11-13: caption/标题格式 ───────────────────────────────────────────────────
 
+def test_caption_contains_fixed_hashtags():
+    """compose 从 blogger 提取 display_name / cn_name 作固定 hashtag，
+    始终出现在 caption 中，且在 LLM hashtag 之前。"""
+    plans = compose(
+        [make_post("p1")], "盘前", BLOGGER,
+        run_date=RUN_DATE,
+        card_llm=make_card_llm(),
+        plan_llm=make_plan_llm([CLEAN_META]),  # CLEAN_META hashtags=["美股","科技股"]
+    )
+    caption = plans[0].caption
+    assert "#Serenity" in caption
+    assert "#白毛股神" in caption
+    assert caption.index("#Serenity") < caption.index("#美股")
+
+
 def test_caption_always_ends_with_disclaimer():
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,

@@ -121,7 +121,7 @@ def _build_cover_subline(bin_cards: List["ContentCard"]) -> Tuple[str, List[bool
     flags: List[bool] = []
     for pid in seen_ids:
         card = post_to_card[pid]
-        if scan_banned(card.heading):
+        if scan_card_violations(card.heading):
             ticker = _pick_ticker_from_card(card)
             text = f"{ticker} 相关动态" if ticker else "相关动态"
             lines.append(f"- {text}")
@@ -145,8 +145,15 @@ def _build_title(
     return f"白毛股神{date_str}{session}｜{hook}{suffix}"
 
 
-def _assemble_caption(body: str, hashtags: List[str]) -> str:
-    tags = "  ".join(f"#{tag}" for tag in hashtags) if hashtags else ""
+def _assemble_caption(
+    body: str,
+    hashtags: List[str],
+    fixed_hashtags: Optional[List[str]] = None,
+) -> str:
+    fixed = list(fixed_hashtags) if fixed_hashtags else []
+    extra = [t for t in hashtags if t not in fixed]
+    all_tags = fixed + extra
+    tags = "  ".join(f"#{tag}" for tag in all_tags) if all_tags else ""
     parts = [body]
     if tags:
         parts.append(tags)
@@ -215,12 +222,14 @@ def _gen_plan_meta(
     plan_llm: Callable,
     prior_summaries: Optional[List[str]] = None,
     cover_subline: str = "",
+    fixed_hashtags: Optional[List[str]] = None,
 ) -> Tuple[Dict, bool]:
     """
     为单个 PostPlan 生成 title/cover/caption,并做禁词校验。
     命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 plan_llm。
     cover_subline: 由代码层预生成（_build_cover_subline），不再从 plan_llm 读取。
     prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入，供 plan_llm 写续写 caption 用）。
+    fixed_hashtags: 从 blogger config 提取的固定 hashtag（display_name / cn_name），代码层注入。
     返回 (meta_dict, needs_human_edit)。
     """
     last: Dict = {}
@@ -234,7 +243,7 @@ def _gen_plan_meta(
             rejected_phrases=rejected,
         )
         title = _build_title(raw["hook"], session, run_date, part_no)
-        caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []))
+        caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []), fixed_hashtags)
         date_str = f"{run_date.month}.{run_date.day}"
         cover_headline = f"Serenity {date_str}更新"
         last = {
@@ -287,6 +296,8 @@ def compose(
     if plan_llm is None:
         plan_llm = _default_plan_llm
 
+    fixed_hashtags = [t for t in [blogger.get("display_name", ""), blogger.get("cn_name", "")] if t]
+
     # 步骤 1: 每条推生成卡组（tweet group = 该推的所有 ContentCard）
     # tweet_groups: [(post_id, cards, card_needs_edit), ...]
     TweetGroup = Tuple[str, List[ContentCard], bool]
@@ -330,6 +341,7 @@ def compose(
         meta, plan_needs_edit = _gen_plan_meta(
             bin_cards, session, part_no, run_date, plan_llm,
             prior_summaries, cover_subline=subline_str,
+            fixed_hashtags=fixed_hashtags,
         )
         plans.append(PostPlan(
             title=meta["title"],

@@ -85,8 +85,8 @@ _PLAN_SYSTEM = """\
 严格规则:
 1. cover_headline ≤ 12 字，优先用「白毛股神」作主语（排版考量，英文名在封面大字号下易断行）
 2. hook ≤ 10 字，直接抓眼球
-3. caption_body 口语化，≤ 300 字，不加免责声明（系统自动追加）
-4. hashtags 3-6 个，不加 # 前缀
+3. 正文（投资笔记）按人设描述写，软上限约 200 字，不加免责声明（系统自动追加）
+4. hashtags 生成 3-6 个与内容相关的 hashtag，不加 # 前缀；禁擦边 tag（#牛股 #翻倍 #暴涨 等）；博主固定 hashtag 由系统代码注入，不必生成
 5. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
 6. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
 
@@ -146,7 +146,12 @@ def _primary_ticker(tickers: list) -> str:
     return f"${primary['symbol']}"
 
 
-def _make_plan_llm(client, model: str):
+def _make_plan_llm(client, model: str, blogger: dict):
+    persona = blogger.get("note_persona", "")
+    system_content = _PLAN_SYSTEM
+    if persona:
+        system_content += "\n\n写作人设（正文（投资笔记）必须按此人设写）:\n" + persona
+
     def plan_llm(cards, session: str, prior_summaries=None, rejected_phrases=None) -> dict:
         # 按 source_post_id 分组，取每推的第一张卡代表该推（副标题按推不按卡）
         post_groups: dict = {}
@@ -178,7 +183,7 @@ def _make_plan_llm(client, model: str):
                 resp = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": _PLAN_SYSTEM},
+                        {"role": "system", "content": system_content},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.5,
@@ -289,7 +294,7 @@ def generate_xhs(
         plans = compose(
             posts, session, blogger, run_date=run_date,
             card_llm=card_llm or _make_card_llm(client, model),
-            plan_llm=_make_plan_llm(client, model),
+            plan_llm=_make_plan_llm(client, model, blogger),
         )
         print(f"[xhs] 生成 {len(plans)} 个 PostPlan")
         for plan in plans:
