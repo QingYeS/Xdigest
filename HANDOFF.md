@@ -55,8 +55,9 @@ python main.py --no-email --force   # 跑全链路但不发邮件,看是否正�
 - **追踪对象**:目前只有一位博主 Serenity(@aleabitoreddit,中文称「白毛股神」)。
   配置在 `blogger_config.py` 的 `TRACKED_BLOGGERS`,未来加博主改这里即可。
 - **内容形态**:图片卡 = 她单条推的完整中文翻译(全量)+ 英文原文节选;
-  正文 caption = 原创总结解读。视觉是手写笔记本风(霞鹜文楷字体 + 点阵纸 +
-  荧光笔 + ticker 徽章 + 便利贴)。
+  正文 note = 「投资笔记」人设的原创解读(LLM 按 blogger_config 的 `note_persona`
+  写,只返回 `note_body` + `hashtags`,标题/封面均由代码模板生成)。
+  视觉是手写笔记本风(霞鹜文楷字体 + 点阵纸 + 荧光笔 + ticker 徽章 + 便利贴)。
 
 ---
 
@@ -86,29 +87,41 @@ python main.py --no-email --force   # 跑全链路但不发邮件,看是否正�
   - 每篇含署名 + 免责声明;不得编造(译文严格对应原文)
   - 代词用「Serenity」,禁用「她/他」(博主性别未知)
 - **翻译**:全量直译,真实数据验证忠实无幻觉
+- **标题纯模板化**:`PostPlan.title` 已改为代码生成,格式固定为
+  `白毛股神(Serenity)po文翻译 | 截止至 {M.D} {时间} EST{【N】}`;
+  `SESSION_TIME_EST` 常量在 `xhs_composer.py` 顶部,不经 LLM。
+  已真实验证多帖分割(【1】【2】【3】)和盘前/盘后时间映射。
+- **正文字段重命名(caption → note)**:`PostPlan.caption` → `PostPlan.note`,
+  `plan_llm` JSON schema 字段 `caption_body` → `note_body`,全量代码及测试已同步
+  (63 tests passed)。CSS 类名 `phone-note`/`note-body` 等也已更新。
+- **plan_llm schema 瘦身**:清除了 `hook`/`cover_headline`/`cover_subline` 三个
+  早已由代码生成、LLM 输出被忽略的字段;schema 仅剩 `{"note_body":"...","hashtags":["..."]}`,
+  system prompt 规则相应重编号。
+- **正文「投资笔记」人设**:plan_llm 系统提示加入按 `note_persona` 注入的博主专属
+  写作风格,LLM 正文不再"机器味",已真实运行验证输出(如「看来大神还是很看好 $XFAB」)。
 
 ---
 
-## 4. 待打磨(接下来的主要工作:内容文案质量)
+## 4. 待打磨(当前状态与后续方向)
 
-这是请你们把关、需要继续开发的核心部分。当前文案是**初版,偏弱**:
+**标题 hook 问题已解决**:标题现在纯模板生成,不再依赖 LLM,
+空泛标题问题从根本上消除。
 
-### 问题:封面钩子/标题偏抽象、信息密度低
-真实生成出现「市场波动」「白毛股神看好」(后者主谓后无宾语被截断)这类空泛标题。
+当前文案质量的主要待打磨点:
 
-**根因(已诊断)**:生成钩子的 `plan_llm`(在 `xhs_pipeline.py`)输入只有
-card 二次摘要后的 heading+points,**ticker、stance、原文/译文都没传进去**,
-导致它只能凭模糊摘要造空词。
+### 正文(note)口吻
+「投资笔记」人设已注入,但 note_persona 细节和 system prompt 措辞仍有调整空间。
+判断标准:正文读起来像「认真追踪白毛股神的普通投资者分享」,不像内容营销机器人。
+可以在不消耗额外 card_llm 额度的情况下只重跑 plan_llm(从 archive 重读已分析帖)。
 
-**建议修复方向**(尚未实现,留给你们):
-1. 扩充 `plan_llm` 输入:把 tickers+stance、每条推的「一句话核心事件」喂进去
-2. `cover_headline` 去掉「白毛股神:」前缀(页眉已有账号名,大字别浪费在重复上)
-3. 用「具体 vs 抽象」软引导(钩子须含 ticker/公司/人名/事件/数字之一,
-   禁止只用「波动/机会/领军」等空词),给正反例;**不要用「必须含ticker否则无效」
-   的硬规则重试**(浪费 token)
-4. 风格目标:首先准确、信息密度高;其次抓眼引流;但不标题党、不哗众取宠
-5. 之后再依次打磨:内容卡 heading → 正文 caption(要有「认真追踪者分享」的口吻,
-   不复述目录)
+### 内容卡 heading 与 points 措辞
+card_llm 生成的 heading 有时过于笼统(如「市场分析」),points 偶有重叠。
+打磨方向:heading 用具体 ticker/事件,points 信息密度高、不重复。
+注意 heading 和 points 均有禁词 + 代词硬校验(「她/他」会触发重试)。
+
+### hashtag 质量
+plan_llm 生成的 hashtag 目前基本合规,但与内容相关性有时偏弱。
+可以在 system prompt 里加示例引导,不需要改结构。
 
 ---
 
@@ -122,11 +135,16 @@ card 二次摘要后的 heading+points,**ticker、stance、原文/译文都没�
   官方关闭,无法升级,只能在免费额度内有计划地用。
   应对:**调试时用单条推**(给调试入口加 `--only <post_id>` 参数,只跑一条看效果),
   这是当前最重要的省额度手段。
-- **强烈建议新增一个调试入口**(尚未实现):从 `archive/<日期>.jsonl` 读
+- **从 archive 重生成(已实现)**:`regenerate_xhs.py` 从 `archive/<日期>.jsonl` 读
   已分析好的帖子,跳过抓取和 analyzer(最贵的一步),只重跑 xhs 内容生成。
-  配合 `--only` 单条推,调文案 prompt 时几乎不消耗额外的分析 token。
-- **更进一步的优化**:把 card_llm 输出也缓存进 archive,这样调钩子时
-  只剩 plan_llm 一次调用,基本不再撞限流,且锁住卡片变量便于判断钩子效果。
+  用法:`python regenerate_xhs.py --date 2026-06-11 --session 盘后`。
+  调文案 prompt 时优先用这个,基本不消耗 analyzer token。
+- **Windows 上 `conda run` 中文问题(已知 bug)**:
+  `conda run -n xdigest python <script>.py` 传入中文参数或输出含中文时,
+  conda 内部 `print(response.stdout)` 触发 `UnicodeEncodeError: 'charmap' codec`
+  (Windows cp1252 编码限制)。**解决方案**:直接用完整 Python 路径调用:
+  `C:\Users\Jinge\anaconda3\envs\xdigest\python.exe <script>.py`,
+  中文命令行参数同样失效,改用文件传参或脚本内部硬编码日期/session。
 - **判断生成质量,1-2 条有代表性的推(如一条长推 + 一条短推)就够**,
   不需要每次都看全部 8 条的输出。
 
@@ -138,17 +156,19 @@ card 二次摘要后的 heading+points,**ticker、stance、原文/译文都没�
 |------|------|
 | `main.py` | 入口:抓取→去重→分析→邮件→xhs(--no-email/--force 开关) |
 | `xhs_pipeline.py` | xhs 编排入口 generate_xhs();含 card_llm / plan_llm 调用与 prompt |
-| `xhs_composer.py` | 装箱、数据类、禁词/代词校验 |
+| `xhs_composer.py` | 装箱、数据类、禁词/代词校验;`SESSION_TIME_EST` 常量与 `_build_title()` |
 | `xhs_renderer.py` | PNG 渲染(Pillow + LXGW 字体) |
 | `xhs_preview.py` | 静态预览页 HTML(手机模拟 + 原推对照 + 复制按钮) |
-| `blogger_config.py` | TRACKED_BLOGGERS 配置 + filter_tracked() |
+| `blogger_config.py` | TRACKED_BLOGGERS 配置 + filter_tracked() + note_persona |
 | `archive.py` | 按天存 analyzer 输出,7天滚动 |
+| `regenerate_xhs.py` | 从 archive 重新生成 xhs 内容(跳过抓取和分析,调试利器) |
 | `CLAUDE.md` | 项目约定 + 合规红线(权威,优先级最高) |
 
 命令:
 - `python main.py` — 正常运行(邮件 + xhs)
 - `python main.py --no-email` — 不发邮件(测试用)
 - `python main.py --no-email --force` — 跳过去重(反复测试,但会重新分析烧 token)
+- `python regenerate_xhs.py --date 2026-06-11 --session 盘后` — 从 archive 重生成 xhs(不烧 analyzer token)
 - `pytest tests/` — 单元测试
 
 ---

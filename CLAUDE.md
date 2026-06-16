@@ -88,12 +88,15 @@ conda activate xdigest
 - 分割帖的封面副标题必须各自概括本帖内容,不得雷同(避免被判重复内容)
 - 分割帖建议间隔 15 至 30 分钟发布(写入预览页的提示文案即可,发布是人工的)
 
-标题模板(上限 20 字):
+标题模板(纯代码生成,不经 LLM):
 
 ```
-白毛股神{M.D}{盘前|盘后}｜{8-10字钩子}{【n】}
-示例:白毛股神6.10盘前｜CPO她还在硬刚【1】
+白毛股神(Serenity)po文翻译 | 截止至 {M.D} {时间} EST{【N】}
+示例:白毛股神(Serenity)po文翻译 | 截止至 6.15 8:00pm EST【2】
 ```
+
+session 时间映射(见 `xhs_composer.py` 的 `SESSION_TIME_EST`):
+盘前 → 8:00am,盘后 → 8:00pm,周报 → 8:00pm
 
 ## 四、视觉规范（手写笔记本风）
 
@@ -131,10 +134,13 @@ conda activate xdigest
 - 段落短,适当留白,可用分隔符
 - 话题标签 3 至 6 个,放正文末尾免责声明之前
 - 末尾固定免责声明(见红线第3条)
-- **代词规范**:所有生成文案(heading/points/caption/标题钩子)中,
+- **代词规范**:所有生成文案(heading/points/note)中,
   指代博主一律用名字「Serenity」,禁用「她」「他」「TA」。
   代码层对 heading 和 points 做硬校验(出现「她」或「他」即触发重试),
-  caption 靠 system prompt 约束。
+  note 靠 system prompt 约束。
+- **正文人设**:plan_llm 按 `blogger_config.py` 中各博主的 `note_persona` 字段
+  生成「投资笔记」风格正文,LLM 只需返回 `note_body` + `hashtags` 两个字段,
+  标题/封面/副标题均由代码模板生成,不经 LLM。
 
 ## 六、项目约定
 
