@@ -14,12 +14,9 @@ LLM 接口(可注入,便于测试):
         rejected_phrases: 上次被拒绝的禁词列表(重试时传入,让 LLM 知道原因)
 
     plan_llm(cards, session, prior_summaries=None, rejected_phrases=None) -> dict
-        字段: hook(str), cover_headline(str), cover_subline(str),
-               note_body(str), hashtags(list[str])
+        字段: note_body(str), hashtags(list[str])
         prior_summaries: 前面各帖 cover_subline 列表（分割帖续帖时传入，
                           供生成衔接 note 用；单帖时为空列表）
-        cover_headline 约束: 优先使用中文称呼「白毛股神」，避免英文名 Serenity
-          （排版考量：英文长词在封面大字号下易被断行；points/note 中仍正常使用 Serenity）
         rejected_phrases: 同上
 
 禁词校验在代码层强制执行,card 和 plan 各自最多 2 次重试,仍命中则标记
@@ -49,6 +46,13 @@ BANNED_PRONOUNS: List[str] = ["她", "他"]
 LONG_TWEET_THRESHOLD: int = 120   # translation 超过此字数视为长推
 MAX_TWEETS: int = int(os.getenv("XHS_MAX_TWEETS_PER_POST", "3"))   # 每帖推数量软上限
 MAX_CARDS_HARD: int = 16          # 每帖内容卡硬上限 (18张图 - 封面 - 尾页)
+
+# session → 美东截止时间（对应 launchd 抓取时点）
+SESSION_TIME_EST: Dict[str, str] = {
+    "盘前": "8:00am",
+    "盘后": "8:00pm",
+    "周报": "8:00pm",
+}
 
 
 # ── 数据结构 ─────────────────────────────────────────────────────────────────
@@ -137,12 +141,11 @@ def estimate_cards(post: dict) -> int:
     return 1
 
 
-def _build_title(
-    hook: str, session: str, run_date: date, part_no: Optional[int]
-) -> str:
+def _build_title(session: str, run_date: date, part_no: Optional[int]) -> str:
     date_str = f"{run_date.month}.{run_date.day}"
+    time_est = SESSION_TIME_EST.get(session, "8:00pm")
     suffix = f"【{part_no}】" if part_no is not None else ""
-    return f"白毛股神{date_str}{session}｜{hook}{suffix}"
+    return f"白毛股神(Serenity)po文翻译 | 截止至 {date_str} {time_est} EST{suffix}"
 
 
 def _assemble_note(
@@ -242,7 +245,7 @@ def _gen_plan_meta(
             prior_summaries=prior_summaries,
             rejected_phrases=rejected,
         )
-        title = _build_title(raw["hook"], session, run_date, part_no)
+        title = _build_title(session, run_date, part_no)
         note = _assemble_note(raw["note_body"], raw.get("hashtags", []), fixed_hashtags)
         date_str = f"{run_date.month}.{run_date.day}"
         cover_headline = f"Serenity {date_str}更新"
@@ -405,8 +408,6 @@ def _debug_pack() -> None:
         call_idx[0] += 1
         pid_set = sorted({c.source_post_id for c in cards})
         return {
-            "hook": f"帖{call_idx[0]}钩子({'、'.join(pid_set)})",
-            "cover_headline": f"白毛股神谈{''.join(pid_set)}",
             "note_body": f"本帖摘要{'、'.join(pid_set)}",
             "hashtags": ["美股"],
         }

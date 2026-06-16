@@ -70,9 +70,6 @@ def make_post(post_id: str, translation: str = SHORT_TRANSLATION) -> dict:
 
 
 CLEAN_META = {
-    "hook": "Serenity看好科技股",
-    "cover_headline": "白毛股神看好科技股",
-    "cover_subline": "美联储暂停后的机会",
     "note_body": "盘前总结",
     "hashtags": ["美股", "科技股"],
 }
@@ -139,7 +136,7 @@ def test_short_tweet_generates_1_card_single_plan():
 # ── 4-6: 禁词校验(plan 级) ────────────────────────────────────────────────────
 
 def test_banned_phrase_retry_succeeds_on_second_attempt():
-    dirty_meta = {**CLEAN_META, "hook": "做多NVDA要火"}
+    dirty_meta = {**CLEAN_META, "note_body": "做多NVDA很看好"}
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
         run_date=RUN_DATE,
@@ -147,11 +144,11 @@ def test_banned_phrase_retry_succeeds_on_second_attempt():
         plan_llm=make_plan_llm([dirty_meta, CLEAN_META]),
     )
     assert not plans[0].needs_human_edit
-    assert "做多" not in plans[0].title
+    assert "做多" not in plans[0].note
 
 
 def test_banned_phrase_exhausts_retries_marks_needs_human_edit():
-    dirty_meta = {**CLEAN_META, "hook": "做多NVDA要火"}
+    dirty_meta = {**CLEAN_META, "note_body": "做多NVDA很看好"}
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
         run_date=RUN_DATE,
@@ -231,7 +228,7 @@ def test_plan_llm_receives_rejection_reason_on_retry():
     def tracking_plan_llm(cards, session, prior_summaries=None, rejected_phrases=None):
         received_rejections.append(rejected_phrases)
         if rejected_phrases is None:
-            return {**CLEAN_META, "hook": "做多NVDA要火"}
+            return {**CLEAN_META, "note_body": "做多NVDA很看好"}
         return CLEAN_META
 
     plans = compose(
@@ -281,6 +278,8 @@ def test_single_plan_title_has_no_part_number():
     )
     assert "【" not in plans[0].title
     assert plans[0].part_no is None
+    assert "截止至" in plans[0].title
+    assert "8:00am EST" in plans[0].title
 
 
 def test_split_plans_have_sequential_part_numbers_in_titles():
@@ -295,6 +294,7 @@ def test_split_plans_have_sequential_part_numbers_in_titles():
     assert plans[1].part_no == 2
     assert "【1】" in plans[0].title
     assert "【2】" in plans[1].title
+    assert "EST" in plans[0].title
 
 
 # ── 14-15: 代词校验 ──────────────────────────────────────────────────────────

@@ -81,14 +81,12 @@ _CARD_SYSTEM = """\
    正例（忠实还原）: 「Serenity 感叹市场波动剧烈」或「特朗普取消对伊朗攻击，大盘普涨」"""
 
 _PLAN_SYSTEM = """\
-你是小红书内容创作助手，负责为股票博主追踪帖子生成发帖元数据。
+你是小红书内容创作助手，负责为股票博主追踪帖子生成发帖正文与话题标签。
 严格规则:
-1. cover_headline ≤ 12 字，优先用「白毛股神」作主语（排版考量，英文名在封面大字号下易断行）
-2. hook ≤ 10 字，直接抓眼球
-3. 正文（投资笔记）按人设描述写，软上限约 200 字，不加免责声明（系统自动追加）
-4. hashtags 生成 3-6 个与内容相关的 hashtag，不加 # 前缀；禁擦边 tag（#牛股 #翻倍 #暴涨 等）；博主固定 hashtag 由系统代码注入，不必生成
-5. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
-6. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
+1. 正文（投资笔记）按人设描述写，软上限约 200 字，不加免责声明（系统自动追加）
+2. hashtags 生成 3-6 个与内容相关的 hashtag，不加 # 前缀；禁擦边 tag（#牛股 #翻倍 #暴涨 等）；博主固定 hashtag 由系统代码注入，不必生成
+3. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
+4. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
 
 
 # ── Groq LLM 工厂 ───────────────────────────────────────────────────────────
@@ -176,7 +174,7 @@ def _make_plan_llm(client, model: str, blogger: dict):
             f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
             + '\n\n严格按 JSON 输出:\n'
-            '{"hook":"...","cover_headline":"...","note_body":"...","hashtags":["..."]}'
+            '{"note_body":"...","hashtags":["..."]}'
         )
         for attempt in range(3):
             try:
@@ -379,9 +377,6 @@ def _run_mock(session: str = "盘前") -> Path:
     def _stub_plan_llm(cards, session_: str, prior_summaries=None, rejected_phrases=None) -> dict:
         _call_idx[0] += 1
         return {
-            "hook": "深度解读",
-            "cover_headline": f"白毛股神{session_}解读",
-            "cover_subline": f"第{_call_idx[0]}帖核心要点",
             "note_body": (
                 f"今日 {session_} Serenity 分享了市场最新观察，"
                 f"共 {len(cards)} 张内容卡，欢迎对照原推核实。"
