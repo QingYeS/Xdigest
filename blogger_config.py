@@ -9,6 +9,7 @@ TRACKED_BLOGGERS: List[Dict] = [
         "display_name": "Serenity",
         "cn_name": "白毛股神",
         "enabled": True,
+        "header_label": "傻豆的追更笔记",
         "note_persona": """\
 角色：一个刚开始投资的年轻女性，把 Serenity（白毛股神）当大神跟随，抄作业型。正文是她看完今天帖子后的投资笔记/追更心得/心情记录。人设主要定语气，不必每条自报家门，但偶尔自然流露身份（「我这种新手都看懂了」）可以。
 

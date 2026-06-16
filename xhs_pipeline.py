@@ -214,21 +214,21 @@ def _render_plan(
     prefix = f"p{plan_idx:02d}"
 
     cover_path = out_dir / f"{prefix}_cover.png"
-    render_cover(plan, cover_path, run_date=run_date)
+    render_cover(plan, cover_path, run_date=run_date, blogger=blogger)
     print(f"  [render] {cover_path.name}")
 
     card_paths: List[Path] = []
     for ci, card in enumerate(plan.cards):
         tc_paths = render_tweet_cards(
             card, out_dir, f"{prefix}_c{ci+1:02d}",
-            run_date=run_date, session=plan.session,
+            run_date=run_date, session=plan.session, blogger=blogger,
         )
         card_paths.extend(tc_paths)
         for p in tc_paths:
             print(f"  [render] {p.name}")
 
     tail_path = out_dir / f"{prefix}_tail.png"
-    render_tail(tail_path, blogger=blogger)
+    render_tail(tail_path, blogger=blogger, run_date=run_date)
     print(f"  [render] {tail_path.name}")
 
     return RenderedPlan(

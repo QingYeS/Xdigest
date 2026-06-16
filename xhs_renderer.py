@@ -193,6 +193,29 @@ def _draw_margin_line(draw) -> None:
     draw.rectangle([MARGIN_X, 0, MARGIN_X + 3, H], fill=MARGIN_LINE)
 
 
+def _draw_watermark(img, text: str) -> None:
+    from PIL import Image, ImageDraw
+    if not text:
+        return
+    f_wm = _reg(44)
+    size = max(W, H) * 2
+    layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    tw = int(d.textlength(text, font=f_wm)) + 20
+    th = 64
+    step_x = tw + 200
+    step_y = th + 160
+    for row in range(-1, size // step_y + 2):
+        for col in range(-1, size // step_x + 2):
+            x = col * step_x + (row % 2) * (step_x // 2)
+            y = row * step_y
+            d.text((x, y), text, font=f_wm, fill=(110, 110, 110, 30))
+    rotated = layer.rotate(-30)
+    left = (size - W) // 2
+    top  = (size - H) // 2
+    img.alpha_composite(rotated.crop((left, top, left + W, top + H)))
+
+
 def _finalize(img) -> object:
     from PIL import Image
     bg = Image.new("RGB", img.size, (252, 250, 244))
@@ -411,6 +434,7 @@ def render_cover(
     plan: PostPlan,
     out_path: Path,
     run_date: Optional[date] = None,
+    blogger: Optional[dict] = None,
 ) -> Path:
     if run_date is None:
         run_date = date.today()
@@ -418,12 +442,20 @@ def render_cover(
     img, draw = _canvas()
     _draw_dot_grid(draw)
     _draw_margin_line(draw)
+    _draw_watermark(img, (blogger or {}).get("header_label", ""))
 
     usable = W - CONTENT_X - MARGIN
 
     # 账号 + 日期标签
-    label = _strip_emoji(f"白毛股神  {run_date.month}.{run_date.day}  {plan.session}")
-    draw.text((CONTENT_X, 56), label, font=_reg(34), fill=SUBINK)
+    label = _strip_emoji(
+        (blogger or {}).get(
+            "header_label",
+            f"白毛股神  {run_date.month}.{run_date.day}  {plan.session}",
+        )
+    )
+    f_label = _reg(34)
+    lw = int(draw.textlength(label, font=f_label))
+    draw.text((W - MARGIN - lw, 56), label, font=f_label, fill=SUBINK)
 
     # 计算 headline 字号与行数
     headline = _strip_emoji(plan.cover_headline)
@@ -464,6 +496,9 @@ def render_cover(
     draw.line([CONTENT_X, foot_y - 20, W - MARGIN, foot_y - 20], fill=(200, 198, 192, 255), width=1)
     draw.text((CONTENT_X, foot_y),      "白毛股神 / Serenity @aleabitoreddit", font=f_foot, fill=SUBINK)
     draw.text((CONTENT_X, foot_y + 42), "仅为个人解读  ·  非投资建议",          font=f_foot, fill=SUBINK)
+    date_str = f"{run_date.year}.{run_date.month}.{run_date.day}"
+    dw = int(draw.textlength(date_str, font=f_foot))
+    draw.text((W - MARGIN - dw, foot_y), date_str, font=f_foot, fill=SUBINK)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,6 +513,7 @@ def render_card(
     out_path: Path,
     run_date: Optional[date] = None,
     session: str = "",
+    blogger: Optional[dict] = None,
 ) -> Path:
     if run_date is None:
         run_date = date.today()
@@ -485,19 +521,16 @@ def render_card(
     img, draw = _canvas()
     _draw_dot_grid(draw)
     _draw_margin_line(draw)
+    _draw_watermark(img, (blogger or {}).get("header_label", ""))
+
+    # 顶部固定页眉
+    label = _strip_emoji((blogger or {}).get("header_label", ""))
+    if label:
+        f_label = _reg(34)
+        lw = int(draw.textlength(label, font=f_label))
+        draw.text((W - MARGIN - lw, 56), label, font=f_label, fill=SUBINK)
 
     usable = W - CONTENT_X - MARGIN
-
-    # 右上角：会话 + 日期
-    f_tag = _reg(30)
-    tag = f"{session}  {run_date.month}.{run_date.day}" if session else f"{run_date.month}.{run_date.day}"
-    tw = int(draw.textlength(tag, font=f_tag))
-    draw.text((W - MARGIN - tw, 36), tag, font=f_tag, fill=SUBINK)
-
-    if card.part > 1:
-        part_tag = f"第 {card.part} 张"
-        ptw = int(draw.textlength(part_tag, font=f_tag))
-        draw.text((W - MARGIN - ptw, 74), part_tag, font=f_tag, fill=SUBINK)
 
     # ── 预计算内容块高度（用于垂直居中）───────────────────────────────────────
     heading_text = _strip_emoji(card.heading)
@@ -583,6 +616,9 @@ def render_card(
     foot_y = H - 72
     draw.line([CONTENT_X, foot_y - 18, W - MARGIN, foot_y - 18], fill=(200, 196, 188, 255), width=1)
     draw.text((CONTENT_X, foot_y), "白毛股神 / Serenity @aleabitoreddit", font=f_foot, fill=SUBINK)
+    date_str = f"{run_date.year}.{run_date.month}.{run_date.day}"
+    dw = int(draw.textlength(date_str, font=f_foot))
+    draw.text((W - MARGIN - dw, foot_y), date_str, font=f_foot, fill=SUBINK)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -612,6 +648,7 @@ def render_tweet_cards(
     base_name: str,
     run_date: Optional[date] = None,
     session: str = "",
+    blogger: Optional[dict] = None,
 ) -> List[Path]:
     """将一条推文的完整内容（full_original + full_translation）渲染为 1 至多张 PNG。
 
@@ -718,17 +755,14 @@ def render_tweet_cards(
         img, draw = _canvas()
         _draw_dot_grid(draw)
         _draw_margin_line(draw)
+        _draw_watermark(img, (blogger or {}).get("header_label", ""))
 
-        # 右上角标签
-        f_tag = _reg(30)
-        tag = f"{session}  {run_date.month}.{run_date.day}" if session else f"{run_date.month}.{run_date.day}"
-        tw = int(draw.textlength(tag, font=f_tag))
-        draw.text((W - MARGIN - tw, 36), tag, font=f_tag, fill=SUBINK)
-
-        if page_no > 1:
-            part_tag = f"第 {page_no} 张"
-            ptw = int(draw.textlength(part_tag, font=f_tag))
-            draw.text((W - MARGIN - ptw, 74), part_tag, font=f_tag, fill=SUBINK)
+        # 顶部固定页眉
+        header = _strip_emoji((blogger or {}).get("header_label", ""))
+        if header:
+            f_hdr = _reg(34)
+            hw = int(draw.textlength(header, font=f_hdr))
+            draw.text((W - MARGIN - hw, 56), header, font=f_hdr, fill=SUBINK)
 
         y = _TC_CONTENT_TOP
 
@@ -775,6 +809,9 @@ def render_tweet_cards(
         foot_y = H - 72
         draw.line([CONTENT_X, foot_y - 18, W - MARGIN, foot_y - 18], fill=(200, 196, 188, 255), width=1)
         draw.text((CONTENT_X, foot_y), "白毛股神 / Serenity @aleabitoreddit", font=f_foot, fill=SUBINK)
+        date_str = f"{run_date.year}.{run_date.month}.{run_date.day}"
+        dw = int(draw.textlength(date_str, font=f_foot))
+        draw.text((W - MARGIN - dw, foot_y), date_str, font=f_foot, fill=SUBINK)
 
         _finalize(img).save(str(out_path), "PNG")
         paths.append(out_path)
@@ -787,6 +824,7 @@ def render_tweet_cards(
 def render_tail(
     out_path: Path,
     blogger: Optional[dict] = None,
+    run_date: Optional[date] = None,
 ) -> Path:
     if blogger is None:
         from blogger_config import TRACKED_BLOGGERS
@@ -799,6 +837,14 @@ def render_tail(
     img, draw = _canvas()
     _draw_dot_grid(draw)
     _draw_margin_line(draw)
+    _draw_watermark(img, (blogger or {}).get("header_label", ""))
+
+    # 顶部固定页眉
+    header = _strip_emoji((blogger or {}).get("header_label", ""))
+    if header:
+        f_hdr = _reg(34)
+        hw = int(draw.textlength(header, font=f_hdr))
+        draw.text((W - MARGIN - hw, 56), header, font=f_hdr, fill=SUBINK)
 
     usable = W - CONTENT_X - MARGIN
 
@@ -852,6 +898,13 @@ def render_tail(
     y += CTA1_H
 
     draw.text((CONTENT_X, y), "评论区告诉我", font=f_cta2, fill=ACCENT)
+
+    if run_date is None:
+        run_date = date.today()
+    date_str = f"{run_date.year}.{run_date.month}.{run_date.day}"
+    f_date = _reg(26)
+    dw = int(draw.textlength(date_str, font=f_date))
+    draw.text((W - MARGIN - dw, H - 60), date_str, font=f_date, fill=SUBINK)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
