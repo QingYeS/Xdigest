@@ -163,7 +163,7 @@ def _make_plan_llm(client, model: str, blogger: dict):
             for i, c in enumerate(post_groups.values())
         )
         prior_note = (
-            f"\n\n前帖内容摘要（供 caption 续写参考）: {prior_summaries}"
+            f"\n\n前帖内容摘要（供正文（note）续写参考）: {prior_summaries}"
             if prior_summaries else ""
         )
         reject_note = (
@@ -176,7 +176,7 @@ def _make_plan_llm(client, model: str, blogger: dict):
             f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
             + '\n\n严格按 JSON 输出:\n'
-            '{"hook":"...","cover_headline":"...","caption_body":"...","hashtags":["..."]}'
+            '{"hook":"...","cover_headline":"...","note_body":"...","hashtags":["..."]}'
         )
         for attempt in range(3):
             try:
@@ -382,7 +382,7 @@ def _run_mock(session: str = "盘前") -> Path:
             "hook": "深度解读",
             "cover_headline": f"白毛股神{session_}解读",
             "cover_subline": f"第{_call_idx[0]}帖核心要点",
-            "caption_body": (
+            "note_body": (
                 f"今日 {session_} Serenity 分享了市场最新观察，"
                 f"共 {len(cards)} 张内容卡，欢迎对照原推核实。"
             ),

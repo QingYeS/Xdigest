@@ -15,15 +15,15 @@ LLM 接口(可注入,便于测试):
 
     plan_llm(cards, session, prior_summaries=None, rejected_phrases=None) -> dict
         字段: hook(str), cover_headline(str), cover_subline(str),
-               caption_body(str), hashtags(list[str])
+               note_body(str), hashtags(list[str])
         prior_summaries: 前面各帖 cover_subline 列表（分割帖续帖时传入，
-                          供生成衔接 caption 用；单帖时为空列表）
+                          供生成衔接 note 用；单帖时为空列表）
         cover_headline 约束: 优先使用中文称呼「白毛股神」，避免英文名 Serenity
-          （排版考量：英文长词在封面大字号下易被断行；points/caption 中仍正常使用 Serenity）
+          （排版考量：英文长词在封面大字号下易被断行；points/note 中仍正常使用 Serenity）
         rejected_phrases: 同上
 
 禁词校验在代码层强制执行,card 和 plan 各自最多 2 次重试,仍命中则标记
-needs_human_edit。caption 的免责声明由代码追加,不依赖 LLM。
+needs_human_edit。note 的免责声明由代码追加,不依赖 LLM。
 """
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ class PostPlan:
     cover_headline: str     # ≤12 字
     cover_subline: str      # 多行 bullet(每行以「- 」开头)；每行约 ≤32 字(临时上限,渲染版面校准后精调)；质量优先,分割帖之间整体必须不同
     cards: List[ContentCard]
-    caption: str            # 含话题标签 + 免责声明
+    note: str               # 含话题标签 + 免责声明
     session: str            # "盘前" | "盘后" | "周报"
     part_no: Optional[int] = None   # 分割编号;无分割为 None
     needs_human_edit: bool = False
@@ -145,7 +145,7 @@ def _build_title(
     return f"白毛股神{date_str}{session}｜{hook}{suffix}"
 
 
-def _assemble_caption(
+def _assemble_note(
     body: str,
     hashtags: List[str],
     fixed_hashtags: Optional[List[str]] = None,
@@ -225,10 +225,10 @@ def _gen_plan_meta(
     fixed_hashtags: Optional[List[str]] = None,
 ) -> Tuple[Dict, bool]:
     """
-    为单个 PostPlan 生成 title/cover/caption,并做禁词校验。
+    为单个 PostPlan 生成 title/cover/note,并做禁词校验。
     命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 plan_llm。
     cover_subline: 由代码层预生成（_build_cover_subline），不再从 plan_llm 读取。
-    prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入，供 plan_llm 写续写 caption 用）。
+    prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入，供 plan_llm 写续写 note 用）。
     fixed_hashtags: 从 blogger config 提取的固定 hashtag（display_name / cn_name），代码层注入。
     返回 (meta_dict, needs_human_edit)。
     """
@@ -243,17 +243,17 @@ def _gen_plan_meta(
             rejected_phrases=rejected,
         )
         title = _build_title(raw["hook"], session, run_date, part_no)
-        caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []), fixed_hashtags)
+        note = _assemble_note(raw["note_body"], raw.get("hashtags", []), fixed_hashtags)
         date_str = f"{run_date.month}.{run_date.day}"
         cover_headline = f"Serenity {date_str}更新"
         last = {
             "title": title,
             "cover_headline": cover_headline,
             "cover_subline": cover_subline,
-            "caption": caption,
+            "note": note,
         }
-        # cover_subline 由代码层保证合规，不参与 LLM 重试；caption 仍必须扫描
-        hits = scan_banned(title + cover_headline + caption)
+        # cover_subline 由代码层保证合规，不参与 LLM 重试；note 仍必须扫描
+        hits = scan_banned(title + cover_headline + note)
         if not hits:
             return last, False
         rejected = hits
@@ -327,7 +327,7 @@ def compose(
             bins.append([])
         bins[-1].append(group)
 
-    # 步骤 3: 为每个 bin 生成 title/cover/caption（传递前帖摘要作衔接上下文）
+    # 步骤 3: 为每个 bin 生成 title/cover/note（传递前帖摘要作衔接上下文）
     n_bins = len(bins)
     plans: List[PostPlan] = []
     for i, bin_groups in enumerate(bins):
@@ -348,7 +348,7 @@ def compose(
             cover_headline=meta["cover_headline"],
             cover_subline=subline_str,
             cards=bin_cards,
-            caption=meta["caption"],
+            note=meta["note"],
             session=session,
             part_no=part_no,
             needs_human_edit=plan_needs_edit or bin_has_fail,
@@ -407,7 +407,7 @@ def _debug_pack() -> None:
         return {
             "hook": f"帖{call_idx[0]}钩子({'、'.join(pid_set)})",
             "cover_headline": f"白毛股神谈{''.join(pid_set)}",
-            "caption_body": f"本帖摘要{'、'.join(pid_set)}",
+            "note_body": f"本帖摘要{'、'.join(pid_set)}",
             "hashtags": ["美股"],
         }
 

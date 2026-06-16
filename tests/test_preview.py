@@ -39,7 +39,7 @@ PLAN_BASIC = PostPlan(
     cover_headline="英伟达供给白毛来看",
     cover_subline="两条干货",
     cards=[CARD_T1],
-    caption=f"测试正文\n\n#美股\n\n{DISCLAIMER}",
+    note=f"测试正文\n\n#美股\n\n{DISCLAIMER}",
     session="盘前",
 )
 
@@ -85,7 +85,7 @@ def test_generate_preview_needs_edit_shows_warning(tmp_path):
         cover_headline="测试标题",
         cover_subline="副标题",
         cards=[CARD_T1],
-        caption=f"正文\n\n{DISCLAIMER}",
+        note=f"正文\n\n{DISCLAIMER}",
         session="盘前",
         needs_human_edit=True,
     )
@@ -107,13 +107,13 @@ def test_generate_preview_split_post_timing_notice(tmp_path):
     plan_p1 = PostPlan(
         title="白毛股神6.10盘前｜测试【1】",
         cover_headline="测试", cover_subline="第一帖",
-        cards=[CARD_T1], caption=f"正文\n\n{DISCLAIMER}",
+        cards=[CARD_T1], note=f"正文\n\n{DISCLAIMER}",
         session="盘前", part_no=1,
     )
     plan_p2 = PostPlan(
         title="白毛股神6.10盘前｜测试【2】",
         cover_headline="测试续", cover_subline="第二帖",
-        cards=[CARD_T1], caption=f"正文续\n\n{DISCLAIMER}",
+        cards=[CARD_T1], note=f"正文续\n\n{DISCLAIMER}",
         session="盘前", part_no=2,
     )
 
@@ -211,7 +211,7 @@ def test_generate_preview_ticker_stance_shown_in_source_panel(tmp_path):
         cover_headline="三股分析",
         cover_subline="看涨看跌中性",
         cards=[card_bull, card_neutral, card_bear],
-        caption=f"测试\n\n{DISCLAIMER}",
+        note=f"测试\n\n{DISCLAIMER}",
         session="盘前",
     )
     posts = {

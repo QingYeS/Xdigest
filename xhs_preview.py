@@ -171,12 +171,12 @@ body {
     padding: 3px 10px;
     text-align: center;
 }
-.phone-caption {
+.phone-note {
     padding: 14px 16px 18px;
     background: #fff;
     border-top: 1px solid #ebebeb;
 }
-.caption-section-label {
+.note-section-label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.9px;
@@ -184,14 +184,14 @@ body {
     font-weight: 700;
     margin-bottom: 5px;
 }
-.caption-title {
+.note-title {
     font-size: 14px;
     font-weight: 700;
     color: #111;
     line-height: 1.5;
     margin-bottom: 12px;
 }
-.caption-body {
+.note-body {
     font-size: 12px;
     color: #444;
     white-space: pre-wrap;
@@ -359,7 +359,7 @@ def _collect_all_text(rendered_plans: List[RenderedPlan]) -> List[tuple]:
         items.append((f"{lbl}标题", p.title))
         items.append((f"{lbl}封面标题", p.cover_headline))
         items.append((f"{lbl}封面副标题", p.cover_subline))
-        items.append((f"{lbl}正文", p.caption))
+        items.append((f"{lbl}正文", p.note))
         for j, card in enumerate(p.cards):
             items.append((f"{lbl}卡{j+1}标题", card.heading))
             for k, pt in enumerate(card.points):
@@ -463,7 +463,7 @@ def _plan_block_html(
 
     # ── hidden copy sources
     parts.append(f'<pre id="t{idx}" class="copy-src">{_e(plan.title)}</pre>')
-    parts.append(f'<pre id="c{idx}" class="copy-src">{_e(plan.caption)}</pre>')
+    parts.append(f'<pre id="c{idx}" class="copy-src">{_e(plan.note)}</pre>')
 
     # ── subline preview
     subline_lines = (plan.cover_subline or "").splitlines()
@@ -512,13 +512,13 @@ def _plan_block_html(
 
     parts.append("</div>")  # phone-images
 
-    # caption section inside phone frame
+    # note section inside phone frame
     parts.append(
-        '<div class="phone-caption">'
-        '<div class="caption-section-label">标题</div>'
-        f'<div class="caption-title">{_e(plan.title)}</div>'
-        '<div class="caption-section-label">正文</div>'
-        f'<div class="caption-body">{_e(plan.caption)}</div>'
+        '<div class="phone-note">'
+        '<div class="note-section-label">标题</div>'
+        f'<div class="note-title">{_e(plan.title)}</div>'
+        '<div class="note-section-label">正文</div>'
+        f'<div class="note-body">{_e(plan.note)}</div>'
         "</div>"
     )
 
@@ -733,7 +733,7 @@ def _run_mock() -> None:
         cover_headline="供给告急美联储同步撕裂",
         cover_subline="两件事放一起才完整",
         cards=[card1, card2],
-        caption=(
+        note=(
             "今天盘前 Serenity 发了两条，我觉得放一起看才更有意思。\n\n"
             "英伟达那条，核心判断是：短缺不是暂时的，是结构性的。"
             "CoWoS 产能爬坡跟不上数据中心扩张速度，这个差距短期内难以消除。\n\n"
@@ -763,7 +763,7 @@ def _run_mock() -> None:
         cover_headline="AMD市占涨Serenity估值中性",
         cover_subline="中性背后的赔率逻辑",
         cards=[card3],
-        caption=(
+        note=(
             "接上一帖，AMD 那条也值得单独说说。\n\n"
             "Serenity 对 AMD 在企业 AI 推理端的市占提升是认可的，"
             "这是真实发生的事。但 Serenity 并没有因此给出正面的估值判断——"

@@ -874,7 +874,7 @@ def _run_demo() -> None:
         cover_headline="英伟达白毛还在硬刚",
         cover_subline="三大理由说明供给短缺远未结束",
         cards=[],
-        caption="demo",
+        note="demo",
         session="盘前",
     )
     p = render_cover(plan, demo_dir / "01_cover.png", run_date=demo_date)

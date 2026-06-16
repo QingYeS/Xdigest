@@ -25,7 +25,7 @@ DEMO_PLAN = PostPlan(
     cover_headline="英伟达她还在硬刚",
     cover_subline="三大理由说明短缺仍在",
     cards=[DEMO_CARD],
-    caption="测试 caption",
+    note="测试 note",
     session="盘前",
 )
 
@@ -94,7 +94,7 @@ def test_render_cover_long_headline(tmp_path):
         cover_headline="供给短缺远未结束三大理由",
         cover_subline="数据中心需求加速台积电扩产滞后",
         cards=[DEMO_CARD],
-        caption="测试",
+        note="测试",
         session="盘前",
     )
     out = tmp_path / "cover_long.png"

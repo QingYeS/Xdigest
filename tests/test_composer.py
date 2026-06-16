@@ -18,8 +18,8 @@ pytest tests for xhs_composer.py — all LLM calls are mocked.
     9. 分割帖 subline 重复 → 两帖均标记 needs_human_edit
   LLM 调用契约:
    10. plan_llm 重试时传入 rejected_phrases(含被拒禁词)
-  caption/标题格式:
-   11. caption 末尾必含免责声明
+  note/标题格式:
+   11. note 末尾必含免责声明
    12. 单帖标题无分割编号,part_no is None
    13. 分割帖 part_no 1/2,title 含【1】【2】
   代词校验:
@@ -73,7 +73,7 @@ CLEAN_META = {
     "hook": "Serenity看好科技股",
     "cover_headline": "白毛股神看好科技股",
     "cover_subline": "美联储暂停后的机会",
-    "caption_body": "盘前总结",
+    "note_body": "盘前总结",
     "hashtags": ["美股", "科技股"],
 }
 
@@ -245,31 +245,31 @@ def test_plan_llm_receives_rejection_reason_on_retry():
     assert "做多" in received_rejections[1]
 
 
-# ── 11-13: caption/标题格式 ───────────────────────────────────────────────────
+# ── 11-13: note/标题格式 ───────────────────────────────────────────────────
 
-def test_caption_contains_fixed_hashtags():
+def test_note_contains_fixed_hashtags():
     """compose 从 blogger 提取 display_name / cn_name 作固定 hashtag，
-    始终出现在 caption 中，且在 LLM hashtag 之前。"""
+    始终出现在 note 中，且在 LLM hashtag 之前。"""
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
         run_date=RUN_DATE,
         card_llm=make_card_llm(),
         plan_llm=make_plan_llm([CLEAN_META]),  # CLEAN_META hashtags=["美股","科技股"]
     )
-    caption = plans[0].caption
-    assert "#Serenity" in caption
-    assert "#白毛股神" in caption
-    assert caption.index("#Serenity") < caption.index("#美股")
+    note = plans[0].note
+    assert "#Serenity" in note
+    assert "#白毛股神" in note
+    assert note.index("#Serenity") < note.index("#美股")
 
 
-def test_caption_always_ends_with_disclaimer():
+def test_note_always_ends_with_disclaimer():
     plans = compose(
         [make_post("p1")], "盘前", BLOGGER,
         run_date=RUN_DATE,
         card_llm=make_card_llm(),
         plan_llm=make_plan_llm([CLEAN_META]),
     )
-    assert plans[0].caption.endswith(DISCLAIMER)
+    assert plans[0].note.endswith(DISCLAIMER)
 
 
 def test_single_plan_title_has_no_part_number():
