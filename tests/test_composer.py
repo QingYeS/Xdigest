@@ -194,21 +194,7 @@ def test_card_banned_phrase_in_points_triggers_retry_with_reason():
 # ── 8-9: cover_subline 唯一性 ────────────────────────────────────────────────
 
 def test_split_plans_unique_sublines_are_not_flagged():
-    meta_1 = {**CLEAN_META, "cover_subline": "美联储暂停后的机会"}
-    meta_2 = {**CLEAN_META, "cover_subline": "科技股后市展望"}
-    posts = [make_post(f"p{i}") for i in range(5)]
-    plans = compose(
-        posts, "盘前", BLOGGER,
-        run_date=RUN_DATE,
-        card_llm=make_card_llm(),
-        plan_llm=make_plan_llm([meta_1, meta_2]),
-    )
-    assert plans[0].cover_subline != plans[1].cover_subline
-    assert not plans[0].needs_human_edit
-    assert not plans[1].needs_human_edit
-
-
-def test_split_plans_duplicate_sublines_both_flagged_needs_human_edit():
+    # 5 posts → bins 3+2; same heading but different line counts → distinct sublines
     posts = [make_post(f"p{i}") for i in range(5)]
     plans = compose(
         posts, "盘前", BLOGGER,
@@ -216,6 +202,23 @@ def test_split_plans_duplicate_sublines_both_flagged_needs_human_edit():
         card_llm=make_card_llm(),
         plan_llm=make_plan_llm([CLEAN_META]),
     )
+    assert plans[0].cover_subline != plans[1].cover_subline
+    assert not plans[0].needs_human_edit
+    assert not plans[1].needs_human_edit
+
+
+def test_split_plans_duplicate_sublines_both_flagged_needs_human_edit(monkeypatch):
+    # 4 posts + MAX_TWEETS=2 → bins 2+2 with identical headings → identical sublines
+    import xhs_composer
+    monkeypatch.setattr(xhs_composer, "MAX_TWEETS", 2)
+    posts = [make_post(f"p{i}") for i in range(4)]
+    plans = compose(
+        posts, "盘前", BLOGGER,
+        run_date=RUN_DATE,
+        card_llm=make_card_llm(heading="相同标题"),
+        plan_llm=make_plan_llm([CLEAN_META]),
+    )
+    assert plans[0].cover_subline == plans[1].cover_subline
     assert plans[0].needs_human_edit
     assert plans[1].needs_human_edit
 
@@ -375,7 +378,7 @@ def test_single_plan_plan_llm_receives_empty_prior_summaries():
 def test_split_plans_second_plan_receives_first_plan_cover_subline():
     """
     多帖时第 2 帖 plan_llm 接收到第 1 帖的 cover_subline 作为上下文；
-    第 1 帖接收的是空列表。
+    第 1 帖接收的是空列表。cover_subline 现由代码层生成（3 条推 → 3 行 heading）。
     """
     received_summaries = []
 
@@ -387,12 +390,38 @@ def test_split_plans_second_plan_receives_first_plan_cover_subline():
     plans = compose(
         posts, "盘前", BLOGGER,
         run_date=RUN_DATE,
-        card_llm=make_card_llm(),
+        card_llm=make_card_llm(),  # heading="测试标题"
         plan_llm=tracking,
     )
     assert len(plans) == 2
     assert received_summaries[0] == []
-    assert received_summaries[1] == [CLEAN_META["cover_subline"]]
+    # plan 0 had 3 posts → cover_subline = "- 测试标题\n- 测试标题\n- 测试标题"
+    expected_subline = "- 测试标题\n- 测试标题\n- 测试标题"
+    assert received_summaries[1] == [expected_subline]
+
+
+# ── cover_subline fallback ────────────────────────────────────────────────────
+
+def test_cover_subline_fallback_for_banned_heading():
+    """heading 含禁词时副标题应 fallback 为安全模板，flags[i]=True。"""
+    def banned_card_llm(post, rejected_phrases=None):
+        return {
+            "heading": "市场做多信号强烈",
+            "points": ["要点一"],
+            "tickers": [{"symbol": "NVDA", "stance": "bullish"}],
+        }
+
+    plans = compose(
+        [make_post("p1")], "盘前", BLOGGER,
+        run_date=RUN_DATE,
+        card_llm=banned_card_llm,
+        plan_llm=make_plan_llm([CLEAN_META]),
+    )
+    assert len(plans) == 1
+    subline = plans[0].cover_subline
+    assert "做多" not in subline
+    assert "$NVDA 相关动态" in subline
+    assert plans[0].cover_subline_flags == [True]
 
 
 # ── 20: 原子性 ────────────────────────────────────────────────────────────────

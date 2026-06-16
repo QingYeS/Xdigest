@@ -75,6 +75,8 @@ class PostPlan:
     session: str            # "盘前" | "盘后" | "周报"
     part_no: Optional[int] = None   # 分割编号;无分割为 None
     needs_human_edit: bool = False
+    cover_subline_flags: List[bool] = field(default_factory=list)
+    # True = 该行 heading 含禁词已 fallback，需人工核查
 
 
 # ── 工具函数 ─────────────────────────────────────────────────────────────────
@@ -89,6 +91,45 @@ def scan_card_violations(text: str) -> List[str]:
     violations = scan_banned(text)
     violations.extend(p for p in BANNED_PRONOUNS if p in text)
     return violations
+
+
+def _pick_ticker_from_card(card: "ContentCard") -> str:
+    """返回该推的主体 ticker 字符串（如 '$AAOI'）；优先取 bullish/bearish 的，fallback 取第一个。"""
+    tickers = card.tickers or []
+    if not tickers:
+        return ""
+    primary = next(
+        (t for t in tickers if t.get("stance") in ("bullish", "bearish")),
+        tickers[0],
+    )
+    return f"${primary['symbol']}"
+
+
+def _build_cover_subline(bin_cards: List["ContentCard"]) -> Tuple[str, List[bool]]:
+    """从 bin_cards 的 heading 直接生成副标题（每推一行，按推顺序，不按卡）。
+    heading 含禁词时 fallback 为「$TICKER 相关动态」或「相关动态」。
+    返回 (cover_subline_str, flags: List[bool])，flags[i]=True 表示该行触发了降级。
+    """
+    seen_ids: List[str] = []
+    post_to_card: Dict[str, "ContentCard"] = {}
+    for c in bin_cards:
+        if c.source_post_id not in post_to_card:
+            post_to_card[c.source_post_id] = c
+            seen_ids.append(c.source_post_id)
+
+    lines: List[str] = []
+    flags: List[bool] = []
+    for pid in seen_ids:
+        card = post_to_card[pid]
+        if scan_banned(card.heading):
+            ticker = _pick_ticker_from_card(card)
+            text = f"{ticker} 相关动态" if ticker else "相关动态"
+            lines.append(f"- {text}")
+            flags.append(True)
+        else:
+            lines.append(f"- {card.heading}")
+            flags.append(False)
+    return "\n".join(lines), flags
 
 
 def estimate_cards(post: dict) -> int:
@@ -173,11 +214,13 @@ def _gen_plan_meta(
     run_date: date,
     plan_llm: Callable,
     prior_summaries: Optional[List[str]] = None,
+    cover_subline: str = "",
 ) -> Tuple[Dict, bool]:
     """
     为单个 PostPlan 生成 title/cover/caption,并做禁词校验。
     命中禁词时最多重试 2 次,重试时把被拒绝的禁词传给 plan_llm。
-    prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入）。
+    cover_subline: 由代码层预生成（_build_cover_subline），不再从 plan_llm 读取。
+    prior_summaries: 前面各帖的 cover_subline 列表（分割帖时传入，供 plan_llm 写续写 caption 用）。
     返回 (meta_dict, needs_human_edit)。
     """
     last: Dict = {}
@@ -193,15 +236,15 @@ def _gen_plan_meta(
         title = _build_title(raw["hook"], session, run_date, part_no)
         caption = _assemble_caption(raw["caption_body"], raw.get("hashtags", []))
         date_str = f"{run_date.month}.{run_date.day}"
-        part_suffix = f"【{part_no}】" if part_no is not None else ""
-        cover_headline = f"Serenity {date_str}更新{part_suffix}"
+        cover_headline = f"Serenity {date_str}更新"
         last = {
             "title": title,
             "cover_headline": cover_headline,
-            "cover_subline": raw["cover_subline"],
+            "cover_subline": cover_subline,
             "caption": caption,
         }
-        hits = scan_banned(title + cover_headline + raw["cover_subline"] + caption)
+        # cover_subline 由代码层保证合规，不参与 LLM 重试；caption 仍必须扫描
+        hits = scan_banned(title + cover_headline + caption)
         if not hits:
             return last, False
         rejected = hits
@@ -283,18 +326,21 @@ def compose(
         part_no = (i + 1) if n_bins > 1 else None
         prior_summaries = [p.cover_subline for p in plans]  # plans generated so far
 
+        subline_str, subline_flags = _build_cover_subline(bin_cards)
         meta, plan_needs_edit = _gen_plan_meta(
-            bin_cards, session, part_no, run_date, plan_llm, prior_summaries
+            bin_cards, session, part_no, run_date, plan_llm,
+            prior_summaries, cover_subline=subline_str,
         )
         plans.append(PostPlan(
             title=meta["title"],
             cover_headline=meta["cover_headline"],
-            cover_subline=meta["cover_subline"],
+            cover_subline=subline_str,
             cards=bin_cards,
             caption=meta["caption"],
             session=session,
             part_no=part_no,
             needs_human_edit=plan_needs_edit or bin_has_fail,
+            cover_subline_flags=subline_flags,
         ))
 
     # 步骤 4: 分割帖 cover_subline 唯一性检查
@@ -349,7 +395,6 @@ def _debug_pack() -> None:
         return {
             "hook": f"帖{call_idx[0]}钩子({'、'.join(pid_set)})",
             "cover_headline": f"白毛股神谈{''.join(pid_set)}",
-            "cover_subline": f"第{call_idx[0]}帖副标题",
             "caption_body": f"本帖摘要{'、'.join(pid_set)}",
             "hashtags": ["美股"],
         }

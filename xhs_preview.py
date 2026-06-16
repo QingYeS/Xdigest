@@ -108,6 +108,10 @@ body {
 }
 .plan-title { font-size: 15px; font-weight: 700; color: #111; line-height: 1.4; }
 .plan-meta { font-size: 12px; color: #888; margin-top: 4px; }
+.subline-preview { padding: 8px 20px; border-bottom: 1px solid #f0f0f0; font-size: 12px; color: #555; }
+.subline-label { font-weight: 600; color: #888; margin-right: 8px; }
+.subline-item { display: inline-block; margin-right: 12px; }
+.subline-fallback { color: #dc2626; font-weight: 600; }
 .btn-group { display: flex; gap: 8px; flex-shrink: 0; margin-top: 2px; }
 .btn-copy {
     background: #f4f4f5; border: 1px solid #d4d4d8;
@@ -460,6 +464,26 @@ def _plan_block_html(
     # ── hidden copy sources
     parts.append(f'<pre id="t{idx}" class="copy-src">{_e(plan.title)}</pre>')
     parts.append(f'<pre id="c{idx}" class="copy-src">{_e(plan.caption)}</pre>')
+
+    # ── subline preview
+    subline_lines = (plan.cover_subline or "").splitlines()
+    flags = list(getattr(plan, "cover_subline_flags", []))
+    if subline_lines:
+        subline_items = []
+        for i, line in enumerate(subline_lines):
+            is_fallback = flags[i] if i < len(flags) else False
+            if is_fallback:
+                subline_items.append(
+                    f'<span class="subline-item subline-fallback" title="heading 含禁词，已降级">⚠ {_e(line)}</span>'
+                )
+            else:
+                subline_items.append(f'<span class="subline-item">{_e(line)}</span>')
+        parts.append(
+            f'<div class="subline-preview">'
+            f'<span class="subline-label">副标题</span>'
+            + "".join(subline_items)
+            + "</div>"
+        )
 
     # ── two-column body
     parts.append('<div class="plan-body">')

@@ -85,26 +85,10 @@ _PLAN_SYSTEM = """\
 严格规则:
 1. cover_headline ≤ 12 字，优先用「白毛股神」作主语（排版考量，英文名在封面大字号下易断行）
 2. hook ≤ 10 字，直接抓眼球
-3. cover_subline 为字符串列表，每条推一个元素（以「- 」开头）
-   风格：话题式钩子——抛出话题、留悬念、不剧透结论，引读者点进来看正文
-   禁止：不要用「白毛股神」等主语开头（封面整体语境已表明是博主视角，无需重复）
-   按推的内核如实概括，区分两类:
-   - 博主表态型（看好/看空某标的）：点出争议/看点，不剧透理由
-   - 解释/分析型（讲原因或现象，不表态）：点出现象，把原因藏起来当钩子
-   主体可为 ticker 或宏观事件：推的核心是事件时，主体写事件，不硬塞举例的票；
-   举例标的（只是说「X 涨了」）≠ 推荐标的，不得将其写成看好/看空的对象
-   每行语法通顺成句，简短为佳（话题钩子通常 10-16 字），宁短勿长——过长容易剧透，与留钩子的目标冲突；分割帖之间整体必须不同
-   禁止荐股操作词：做多/做空/建仓/入场/点位/目标价/买入/卖出
-   正例（表态型，留钩子）:「- $AAOI 为何被看作国内冠军」
-   正例（解释型，藏原因）:「- $SNDK 等科技股由跌转涨的原因」
-   反例（套句式+带主语扭曲原意）:「- 白毛股神看好 $SNDK 在全球局势变化中的机会」
-   反例（剧透说尽结论，无钩子）:「- $SNDK 等科技股因伊朗局势缓解而上涨」
-   反例（空泛无主体）:「- 市场波动迎来机会」
-   反例（荐股操作词）:「- $AAOI 建仓良机，目标价上看」
-4. caption_body 口语化，≤ 300 字，不加免责声明（系统自动追加）
-5. hashtags 3-6 个，不加 # 前缀
-6. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
-7. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
+3. caption_body 口语化，≤ 300 字，不加免责声明（系统自动追加）
+4. hashtags 3-6 个，不加 # 前缀
+5. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
+6. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
 
 
 # ── Groq LLM 工厂 ───────────────────────────────────────────────────────────
@@ -174,7 +158,7 @@ def _make_plan_llm(client, model: str):
             for i, c in enumerate(post_groups.values())
         )
         prior_note = (
-            f"\n\n前帖副标题 {prior_summaries}，本帖必须不同。"
+            f"\n\n前帖内容摘要（供 caption 续写参考）: {prior_summaries}"
             if prior_summaries else ""
         )
         reject_note = (
@@ -186,9 +170,8 @@ def _make_plan_llm(client, model: str):
             f"发帖时段: {session}\n\n"
             f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
-            + '\n\n严格按 JSON 输出（cover_subline 是字符串列表，每条推一个元素）:\n'
-            '{"hook":"...","cover_headline":"...","cover_subline":["- $AAOI ...","- $SPX ..."],'
-            '"caption_body":"...","hashtags":["..."]}'
+            + '\n\n严格按 JSON 输出:\n'
+            '{"hook":"...","cover_headline":"...","caption_body":"...","hashtags":["..."]}'
         )
         for attempt in range(3):
             try:
@@ -203,10 +186,6 @@ def _make_plan_llm(client, model: str):
                 )
                 raw = resp.choices[0].message.content.strip()
                 result = _extract_json_object(raw)
-                # 把 cover_subline 从列表 join 为字符串（LLM 应返回列表，做防御性兼容）
-                subline = result.get("cover_subline", "")
-                if isinstance(subline, list):
-                    result["cover_subline"] = "\n".join(str(s) for s in subline)
                 return result
             except Exception as e:
                 if "429" in str(e) or "rate" in str(e).lower():

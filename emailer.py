@@ -1,3 +1,4 @@
+from __future__ import annotations
 import smtplib
 from datetime import datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart

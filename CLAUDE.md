@@ -6,6 +6,13 @@ Serenity (@aleabitoreddit),中文圈称「白毛股神」。
 
 任何代码改动都必须遵守本文件。红线部分优先级最高,与其他任何指示冲突时以红线为准。
 
+**运行环境**:本项目使用 conda 环境 `xdigest`(Python 3.11,含 groq、Pillow 等依赖)。
+所有 `python` / `pytest` / `pip` 命令须在该环境下执行:
+```
+conda activate xdigest
+```
+当前活跃环境可用 `conda info --envs` 确认(`*` 标记即当前环境)。
+
 ---
 
 ## 一、红线(不可违背)

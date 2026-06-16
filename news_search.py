@@ -1,6 +1,7 @@
 """
 用 DuckDuckGo 搜索帖子相关的最新新闻（免费，无需 API key）
 """
+from __future__ import annotations
 from ddgs import DDGS
 
 
