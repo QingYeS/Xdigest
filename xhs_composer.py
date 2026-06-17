@@ -14,9 +14,8 @@ LLM 接口(可注入,便于测试):
         rejected_phrases: 上次被拒绝的禁词列表(重试时传入,让 LLM 知道原因)
 
     plan_llm(cards, session, prior_summaries=None, rejected_phrases=None) -> dict
-        字段: note_body(str), hashtags(list[str])
-        prior_summaries: 前面各帖 cover_subline 列表（分割帖续帖时传入，
-                          供生成衔接 note 用；单帖时为空列表）
+        字段: hashtags(list[str])
+        prior_summaries: 前面各帖 cover_subline 列表（分割帖续帖时传入）
         rejected_phrases: 同上
 
 禁词校验在代码层强制执行,card 和 plan 各自最多 2 次重试,仍命中则标记
@@ -28,6 +27,12 @@ import os
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable, Dict, List, Optional, Tuple
+
+NOTE_BODY = (
+    "白毛股神发推很随性，既有聊天也有观点。"
+    "本笔记长po总结，短po直译，一天早/晚各发一次。"
+    "尽量让大家看到Serenity在说什么，方便中文社区一起讨论。"
+)
 
 DISCLAIMER = (
     "以上仅为博主观点的翻译与个人解读，不构成任何投资建议，"
@@ -47,12 +52,7 @@ LONG_TWEET_THRESHOLD: int = 120   # translation 超过此字数视为长推
 MAX_TWEETS: int = int(os.getenv("XHS_MAX_TWEETS_PER_POST", "3"))   # 每帖推数量软上限
 MAX_CARDS_HARD: int = 16          # 每帖内容卡硬上限 (18张图 - 封面 - 尾页)
 
-# session → 美东截止时间（对应 launchd 抓取时点）
-SESSION_TIME_EST: Dict[str, str] = {
-    "盘前": "8:00am",
-    "盘后": "8:00pm",
-    "周报": "8:00pm",
-}
+_SESSION_LABEL: Dict[str, str] = {"盘前": "早", "盘后": "晚", "周报": "周"}
 
 
 # ── 数据结构 ─────────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@ SESSION_TIME_EST: Dict[str, str] = {
 @dataclass
 class ContentCard:
     source_post_id: str
-    heading: str            # ≤14 字
+    heading: str            # ≤18 字，完整陈述句
     points: List[str]       # 2-4 个要点,每条 ≤24 字
     part: int = 1           # 长推拆分时的页码
     quote: Optional[str] = None  # 原推英文引言(可选,用于 quote sticky note)
@@ -141,26 +141,21 @@ def estimate_cards(post: dict) -> int:
     return 1
 
 
-def _build_title(session: str, run_date: date, part_no: Optional[int]) -> str:
-    date_str = f"{run_date.month}.{run_date.day}"
-    time_est = SESSION_TIME_EST.get(session, "8:00pm")
-    suffix = f"【{part_no}】" if part_no is not None else ""
-    return f"白毛股神(Serenity)po文翻译 | 截止至 {date_str} {time_est} EST{suffix}"
+def _build_title(session: str, run_date: date, part_no: int, total_plans: int) -> str:
+    date_str = run_date.strftime("%Y%m%d")
+    label = _SESSION_LABEL.get(session, "晚")
+    return f"白毛股神(Serenity) | {date_str}{label}【{part_no}/{total_plans}】"
 
 
 def _assemble_note(
-    body: str,
     hashtags: List[str],
     fixed_hashtags: Optional[List[str]] = None,
 ) -> str:
     fixed = list(fixed_hashtags) if fixed_hashtags else []
     extra = [t for t in hashtags if t not in fixed]
-    all_tags = fixed + extra
+    all_tags = [t.replace(" ", "") for t in fixed + extra]
     tags = "  ".join(f"#{tag}" for tag in all_tags) if all_tags else ""
-    parts = [body]
-    if tags:
-        parts.append(tags)
-    parts.append(DISCLAIMER)
+    parts = [NOTE_BODY, tags, DISCLAIMER] if tags else [NOTE_BODY, DISCLAIMER]
     return "\n\n".join(parts)
 
 
@@ -220,9 +215,10 @@ def _gen_cards_with_validation(
 def _gen_plan_meta(
     cards: List[ContentCard],
     session: str,
-    part_no: Optional[int],
+    part_no: int,
     run_date: date,
     plan_llm: Callable,
+    total_plans: int = 1,
     prior_summaries: Optional[List[str]] = None,
     cover_subline: str = "",
     fixed_hashtags: Optional[List[str]] = None,
@@ -245,8 +241,8 @@ def _gen_plan_meta(
             prior_summaries=prior_summaries,
             rejected_phrases=rejected,
         )
-        title = _build_title(session, run_date, part_no)
-        note = _assemble_note(raw["note_body"], raw.get("hashtags", []), fixed_hashtags)
+        title = _build_title(session, run_date, part_no, total_plans)
+        note = _assemble_note(raw.get("hashtags", []), fixed_hashtags)
         date_str = f"{run_date.month}.{run_date.day}"
         cover_headline = f"Serenity {date_str}更新"
         last = {
@@ -337,14 +333,14 @@ def compose(
         bin_cards = [c for _, grp_cards, _ in bin_groups for c in grp_cards]
         bin_has_fail = any(needs_edit for _, _, needs_edit in bin_groups)
 
-        part_no = (i + 1) if n_bins > 1 else None
+        part_no = i + 1
         prior_summaries = [p.cover_subline for p in plans]  # plans generated so far
 
         subline_str, subline_flags = _build_cover_subline(bin_cards)
         meta, plan_needs_edit = _gen_plan_meta(
             bin_cards, session, part_no, run_date, plan_llm,
-            prior_summaries, cover_subline=subline_str,
-            fixed_hashtags=fixed_hashtags,
+            total_plans=n_bins, prior_summaries=prior_summaries,
+            cover_subline=subline_str, fixed_hashtags=fixed_hashtags,
         )
         plans.append(PostPlan(
             title=meta["title"],

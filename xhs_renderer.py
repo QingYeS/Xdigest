@@ -130,6 +130,9 @@ def _filter_display_tickers(heading: str, tickers: List[dict]) -> List[dict]:
 _font_cache: Dict = {}
 _bold_path: Optional[str] = None
 _reg_path: Optional[str] = None
+_accent_path: Optional[str] = None
+
+_ACCENT_FONT_PATH = str(_REPO_FONTS / "851 GBai 马克笔体.ttf")
 
 
 def _find_font(candidates: List[str]) -> Optional[str]:
@@ -140,11 +143,15 @@ def _find_font(candidates: List[str]) -> Optional[str]:
 
 
 def _resolve_paths() -> None:
-    global _bold_path, _reg_path
+    global _bold_path, _reg_path, _accent_path
     if _bold_path is None:
         _bold_path = _find_font(_BOLD_CANDIDATES)
     if _reg_path is None:
         _reg_path = _find_font(_REGULAR_CANDIDATES)
+    if _accent_path is None:
+        _accent_path = (
+            _ACCENT_FONT_PATH if Path(_ACCENT_FONT_PATH).exists() else _bold_path
+        )
 
 
 def _pf(path: Optional[str], size: int):
@@ -169,6 +176,11 @@ def _bold(size: int):
 def _reg(size: int):
     _resolve_paths()
     return _pf(_reg_path, size)
+
+
+def _accent(size: int):
+    _resolve_paths()
+    return _pf(_accent_path, size)
 
 
 # ── 画布 & 背景 ───────────────────────────────────────────────────────────────
@@ -428,6 +440,15 @@ def _draw_quote_note(img, draw, quote: str, x: int, y: int, max_w: int) -> int:
     return y + note_h + 16
 
 
+_BADGE_LABEL: Dict[str, str] = {"盘前": "早", "盘后": "晚", "周报": "周"}
+
+
+def _session_badge(session: str, part_no, total_parts: int = 1) -> str:
+    label = _BADGE_LABEL.get(session, "晚")
+    n = part_no if part_no is not None else 1
+    return f"· {label} ·  {n}/{total_parts}"
+
+
 # ── 封面 ──────────────────────────────────────────────────────────────────────
 
 def render_cover(
@@ -435,6 +456,7 @@ def render_cover(
     out_path: Path,
     run_date: Optional[date] = None,
     blogger: Optional[dict] = None,
+    total_plans: int = 1,
 ) -> Path:
     if run_date is None:
         run_date = date.today()
@@ -466,16 +488,33 @@ def render_cover(
         head_lines = _balanced_wrap(draw, headline, f_head, usable)
     head_lh = int(f_head.size * 1.3)
 
-    f_sub = _reg(52)
+    f_sub = _reg(38)
     sub_lines = _balanced_wrap(draw, _strip_emoji(plan.cover_subline), f_sub, usable)
-    sub_lh = 72
-    GAP = 28   # 头副标题间距（收紧 30%，原 40px）
+    sub_lh = 52
+    GAP = 28
 
-    block_h = _text_height(head_lines, head_lh) + GAP + _text_height(sub_lines, sub_lh)
+    # 副标题 badge：[早/晚 马克笔体] + 【N/M】文楷
+    f_badge_reg = _bold(48)
+    f_badge_acc = _accent(72)
+    _label = _BADGE_LABEL.get(plan.session, "晚")
+    _n = plan.part_no if plan.part_no is not None else 1
+    _frac = f"【{_n}/{total_plans}】"
+    _label_w = int(draw.textlength(_label, font=f_badge_acc))
+    _frac_w  = int(draw.textlength(_frac,  font=f_badge_reg))
+    badge_w  = _label_w + _frac_w
+    badge_lh = int(f_badge_acc.size * 1.3)
+    # 小字垂直居中于 badge_lh
+    _reg_y_off = (badge_lh - int(f_badge_reg.size * 1.3)) // 2
+    GAP2 = 16
+
+    block_h = (
+        _text_height(head_lines, head_lh)
+        + GAP + badge_lh
+        + GAP2 + _text_height(sub_lines, sub_lh)
+    )
     y = (H - block_h) // 2 - 60   # 略微偏上
 
     # 胶带：垂直中心线对齐标题第一行顶边（一半压字一半在纸上）
-    # 水平随机偏移 ±60px，旋转 3-5°
     content_cx = (CONTENT_X + W - MARGIN) // 2
     tape_cx = content_cx + random.randint(-60, 60)
     tape_angle = random.uniform(3.0, 5.0) * random.choice([-1, 1])
@@ -488,6 +527,16 @@ def render_cover(
 
     y = _text_block(draw, head_lines, f_head, CONTENT_X, y, INK, head_lh)
     y += GAP
+
+    # 副标题：两段分别绘制，整体高亮
+    _draw_highlight(img, draw, CONTENT_X, y, badge_w, badge_lh, plan.session)
+    bx = CONTENT_X
+    draw.text((bx, y),              _label, font=f_badge_acc, fill=INK)
+    bx += _label_w
+    draw.text((bx, y + _reg_y_off), _frac,  font=f_badge_reg, fill=INK)
+    y += badge_lh + GAP2
+
+    # 三级标题：po文 heading 列表
     _text_block(draw, sub_lines, f_sub, CONTENT_X, y, SUBINK, sub_lh)
 
     # 底部署名
@@ -767,10 +816,10 @@ def render_tweet_cards(
         y = _TC_CONTENT_TOP
 
         if page_no == 1:
-            # Heading + highlight
-            last_line = head_lines[-1]
-            last_w = int(draw.textlength(last_line, font=f_head))
-            _draw_highlight(img, draw, CONTENT_X, y + head_lh * (len(head_lines) - 1), last_w, head_lh, session)
+            # Heading + highlight（逐行覆盖，防止换行时首行漏色）
+            for li, line in enumerate(head_lines):
+                line_w = int(draw.textlength(line, font=f_head))
+                _draw_highlight(img, draw, CONTENT_X, y + head_lh * li, line_w, head_lh, session)
             y = _text_block(draw, head_lines, f_head, CONTENT_X, y, INK, head_lh)
             y += 32
 

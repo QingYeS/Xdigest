@@ -66,11 +66,10 @@ _CARD_SYSTEM = """\
 1. 指代博主一律用「Serenity」，绝对禁用「她」「他」「TA」
 2. 禁止出现以下措辞: 做多、做空、建仓、加仓、减仓、入场、点位、目标价、建议买入、建议卖出、买入、卖出
 3. 只转述博主观点（「Serenity 认为」「Serenity 看好」），不向读者发出操作建议
-4. heading ≤ 14 字，必须具体：点名主体（ticker / 公司 / 人物 / 事件 / 数字之一），
-   让读者一眼知道这条推在讲什么
-   禁止以下空泛词单独成标题：波动、机会、领军、趋势、关注（无主体的 heading 无效）
-   正例:「$AAOI 国内冠军与供应链回流」「普涨行情与伊朗局势降温」
-   反例:「市场波动」「投资机会」「值得关注」
+4. heading ≤ 18 字，必须是完整陈述句（主体 + 谓语/结论），禁止悬空短语
+   禁例:「Serenity 对 $AXTI」（无谓语）「市场波动」（无主体无结论）
+   正例:「Serenity 看好 $AXTI 国内唯一竞争地位」「$AAOI 受益供应链回流」
+         「普涨行情源于伊朗局势降温」「Serenity: $NVDA 封装瓶颈短期难解」
    每条 point ≤ 24 字，points 共 2-4 条
 5. tickers 只标原推中明确提及的标的，stance 仅限 bullish/bearish/neutral
 6. points 必须忠实于原推，不增补博主没说的观点
@@ -81,12 +80,14 @@ _CARD_SYSTEM = """\
    正例（忠实还原）: 「Serenity 感叹市场波动剧烈」或「特朗普取消对伊朗攻击，大盘普涨」"""
 
 _PLAN_SYSTEM = """\
-你是小红书内容创作助手，负责为股票博主追踪帖子生成发帖正文与话题标签。
+你是小红书内容创作助手，负责为股票博主追踪帖子生成精准引流话题标签。
 严格规则:
-1. 正文（投资笔记）按人设描述写，软上限约 200 字，不加免责声明（系统自动追加）
-2. hashtags 生成 3-6 个与内容相关的 hashtag，不加 # 前缀；禁擦边 tag（#牛股 #翻倍 #暴涨 等）；博主固定 hashtag 由系统代码注入，不必生成
-3. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
-4. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
+1. hashtags 生成 3-6 个，优先级顺序:
+   ① 本帖涉及的全部股票代码（去掉$符号，如 NVDA、AXTI、AAOI）
+   ② 本帖相关热词关键字（如 美联储、英伟达、AI算力、供应链、科技股、美股、港股，视内容选择）
+   禁擦边 tag（#牛股 #翻倍 #暴涨 等）；不加 # 前缀；tag 文本不含空格；博主固定 hashtag 由系统注入，不必生成
+2. 指代博主用「Serenity」或「白毛股神」，绝对禁用「她」「他」
+3. 禁止荐股措辞: 做多/做空/建仓/买入/卖出/目标价等"""
 
 
 # ── Groq LLM 工厂 ───────────────────────────────────────────────────────────
@@ -102,7 +103,7 @@ def _make_card_llm(client, model: str):
             f"英文原文:\n{post.get('content', '')}\n\n"
             f"中文翻译:\n{post.get('translation', '')}\n\n"
             f"输出单个 JSON 对象，含:\n"
-            '- "heading": 卡片标题(≤14字，必须点名主体——ticker/事件/人物，禁止空泛词)\n'
+            '- "heading": 卡片标题(≤18字，完整陈述句，主体+结论，禁悬空如「Serenity 对 $AXTI」)\n'
             '- "points": 要点列表(2-4条，每条≤24字)\n'
             '- "tickers": [{"symbol":"XXX","stance":"bullish|bearish|neutral"}]'
             + reject_note
@@ -174,7 +175,7 @@ def _make_plan_llm(client, model: str, blogger: dict):
             f"各推文摘要（格式: 推N [主体ticker]: 标题 — 要点）:\n{card_summaries}"
             + prior_note + reject_note
             + '\n\n严格按 JSON 输出:\n'
-            '{"note_body":"...","hashtags":["..."]}'
+            '{"hashtags":["..."]}'
         )
         for attempt in range(3):
             try:
@@ -210,11 +211,12 @@ def _render_plan(
     plan_idx: int,
     blogger: dict,
     run_date: date,
+    total_plans: int = 1,
 ) -> RenderedPlan:
     prefix = f"p{plan_idx:02d}"
 
     cover_path = out_dir / f"{prefix}_cover.png"
-    render_cover(plan, cover_path, run_date=run_date, blogger=blogger)
+    render_cover(plan, cover_path, run_date=run_date, blogger=blogger, total_plans=total_plans)
     print(f"  [render] {cover_path.name}")
 
     card_paths: List[Path] = []
@@ -296,7 +298,7 @@ def generate_xhs(
         )
         print(f"[xhs] 生成 {len(plans)} 个 PostPlan")
         for plan in plans:
-            rp = _render_plan(plan, out_dir, plan_idx, blogger, run_date)
+            rp = _render_plan(plan, out_dir, plan_idx, blogger, run_date, total_plans=len(plans))
             all_rendered.append(rp)
             plan_idx += 1
 
@@ -377,10 +379,6 @@ def _run_mock(session: str = "盘前") -> Path:
     def _stub_plan_llm(cards, session_: str, prior_summaries=None, rejected_phrases=None) -> dict:
         _call_idx[0] += 1
         return {
-            "note_body": (
-                f"今日 {session_} Serenity 分享了市场最新观察，"
-                f"共 {len(cards)} 张内容卡，欢迎对照原推核实。"
-            ),
             "hashtags": ["美股", "Serenity", "白毛股神"],
         }
 
@@ -392,7 +390,7 @@ def _run_mock(session: str = "盘前") -> Path:
 
     all_rendered: List[RenderedPlan] = []
     for i, plan in enumerate(plans):
-        rp = _render_plan(plan, out_dir, i + 1, blogger, run_date)
+        rp = _render_plan(plan, out_dir, i + 1, blogger, run_date, total_plans=len(plans))
         all_rendered.append(rp)
 
     html_path = generate_preview(
