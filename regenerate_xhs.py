@@ -143,6 +143,11 @@ def main() -> None:
         action="store_true",
         help="忽略 sidecar 缓存，强制重跑 card_llm 并覆写缓存",
     )
+    parser.add_argument(
+        "--no-plan-llm",
+        action="store_true",
+        help="跳过 plan_llm（Groq 限速时用），hashtag 留空，固定 tag 由系统注入",
+    )
     args = parser.parse_args()
 
     try:
@@ -191,7 +196,12 @@ def main() -> None:
         refresh=args.refresh_cards,
     )
 
-    out_dir = generate_xhs(posts, args.session, card_llm=cached_card_llm)
+    stub_plan_llm = None
+    if args.no_plan_llm:
+        def stub_plan_llm(cards, session_, prior_summaries=None, rejected_phrases=None):
+            return {"hashtags": []}
+
+    out_dir = generate_xhs(posts, args.session, card_llm=cached_card_llm, plan_llm=stub_plan_llm)
     print(f"[regenerate] 完成，输出目录: {out_dir}")
 
 

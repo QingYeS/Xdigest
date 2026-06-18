@@ -65,16 +65,20 @@ _CARD_SYSTEM = """\
 严格规则（违反则内容无效）:
 1. 指代博主一律用「Serenity」，绝对禁用「她」「他」「TA」
 2. 禁止出现以下措辞: 做多、做空、建仓、加仓、减仓、入场、点位、目标价、建议买入、建议卖出、买入、卖出
-3. 只转述博主观点（「Serenity 认为」「Serenity 看好」），不向读者发出操作建议
-4. heading ≤ 18 字，必须是完整陈述句（主体 + 谓语/结论），禁止悬空短语
-   禁例:「Serenity 对 $AXTI」（无谓语）「市场波动」（无主体无结论）
-   正例:「Serenity 看好 $AXTI 国内唯一竞争地位」「$AAOI 受益供应链回流」
-         「普涨行情源于伊朗局势降温」「Serenity: $NVDA 封装瓶颈短期难解」
+3. 只转述博主观点，不向读者发出操作建议
+4. heading ≤ 18 字，必须是完整陈述句，以事件/标的/事实为主语开头（新闻标题风格）
+   · 默认：用 ticker / 公司 / 机构 / 事件做主语，不以「Serenity」开头
+   · 「Serenity」只在没有更具体主语时才用，属于兜底写法
+   禁例:「Serenity 看好 $LPK」（主语错）「市场波动」（无结论）「Serenity 对 $AAOI 的看法」（悬空）
+   正例:「$LPK 玻璃基板或成下一代封装主流」
+        「伯恩斯坦预测 $INTC 大错特错」
+        「$AAOI 稀缺激光产能 供不应求」
+        「$NVDA 封装瓶颈短期难解」
    每条 point ≤ 24 字，points 共 2-4 条
 5. tickers 只标原推中明确提及的标的，stance 仅限 bullish/bearish/neutral
 6. points 必须忠实于原推，不增补博主没说的观点
    区分两种情况:
-   - 博主明确表达的看法 → 「Serenity 认为……」「Serenity 看好……」
+   - 博主明确表达的看法 → 「Serenity 认为……」「Serenity 看好/质疑……」
    - 博主陈述的事实或随口感叹 → 直接陈述事件，不安立场
    反例（硬安观点）: 原推只感叹「这市场太波动了」→ 不可写「Serenity 认为市场波动性高」
    正例（忠实还原）: 「Serenity 感叹市场波动剧烈」或「特朗普取消对伊朗攻击，大盘普涨」"""
@@ -103,7 +107,7 @@ def _make_card_llm(client, model: str):
             f"英文原文:\n{post.get('content', '')}\n\n"
             f"中文翻译:\n{post.get('translation', '')}\n\n"
             f"输出单个 JSON 对象，含:\n"
-            '- "heading": 卡片标题(≤18字，完整陈述句，主体+结论，禁悬空如「Serenity 对 $AXTI」)\n'
+            '- "heading": 卡片标题(≤18字，新闻标题风格，以ticker/事件/机构为主语，禁止以「Serenity」开头，禁悬空短语)\n'
             '- "points": 要点列表(2-4条，每条≤24字)\n'
             '- "tickers": [{"symbol":"XXX","stance":"bullish|bearish|neutral"}]'
             + reject_note
@@ -249,6 +253,7 @@ def generate_xhs(
     *,
     mock: bool = False,
     card_llm: Optional[Callable] = None,
+    plan_llm: Optional[Callable] = None,
 ) -> Path:
     """
     编排入口：analyzed posts → composer → renderer → preview HTML。
@@ -294,7 +299,7 @@ def generate_xhs(
         plans = compose(
             posts, session, blogger, run_date=run_date,
             card_llm=card_llm or _make_card_llm(client, model),
-            plan_llm=_make_plan_llm(client, model, blogger),
+            plan_llm=plan_llm or _make_plan_llm(client, model, blogger),
         )
         print(f"[xhs] 生成 {len(plans)} 个 PostPlan")
         for plan in plans:

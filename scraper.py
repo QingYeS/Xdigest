@@ -150,6 +150,32 @@ def _extract_tweets(data: dict) -> list[dict]:
     return tweets
 
 
+def _extract_bottom_cursor(data: dict) -> str | None:
+    """从响应中提取 Bottom 游标用于翻页"""
+    try:
+        instructions = data["data"]["home"]["home_timeline_urt"]["instructions"]
+        for instr in instructions:
+            if instr.get("type") != "TimelineAddEntries":
+                continue
+            for entry in instr.get("entries", []):
+                content = entry.get("content", {})
+                if content.get("entryType") == "TimelineTimelineCursor":
+                    if content.get("cursorType") == "Bottom":
+                        return content.get("value")
+    except (KeyError, TypeError):
+        pass
+    return None
+
+
+def _parse_tweet_time(created_at: str) -> datetime | None:
+    if not created_at:
+        return None
+    try:
+        return datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+    except Exception:
+        return None
+
+
 def _is_finance_related(text: str) -> bool:
     lower = text.lower()
     return any(kw in lower for kw in FINANCE_KEYWORDS)
@@ -214,3 +240,103 @@ def scrape_following_feed(**_) -> list[dict]:
         f"所有 queryId 均无效（最后状态码: {r.status_code}）\n"
         f"响应: {r.text[:300]}"
     )
+
+
+def scrape_range(since: datetime, until: datetime, max_pages: int = 10) -> list[dict]:
+    """
+    抓取 since 到 until 时间段内的投资相关推文（带游标分页回溯）。
+    since/until 必须是 timezone-aware datetime。
+    """
+    if not Path(COOKIES_FILE).exists():
+        raise FileNotFoundError(f"找不到 {COOKIES_FILE}，请先运行 import_cookies.py")
+
+    cookies = _load_cookies()
+    ct0 = cookies.get("ct0", "")
+    if not ct0:
+        raise ValueError("ct0 cookie 缺失，请重新导出 Cookie")
+
+    headers = _headers(ct0)
+    query_ids = QUERY_IDS[:]
+
+    # 发现有效 queryId（第一页顺带取回数据）
+    first_data = None
+    valid_qid = None
+    for attempt, qid in enumerate(query_ids):
+        variables = {
+            "count": 100,
+            "includePromotedContent": False,
+            "latestControlAvailable": True,
+            "requestContext": "launch",
+            "withCommunity": True,
+        }
+        params = {"variables": json.dumps(variables), "features": json.dumps(_FEATURES)}
+        url = f"https://x.com/i/api/graphql/{qid}/HomeLatestTimeline"
+        r = requests.get(url, headers=headers, cookies=cookies, params=params)
+        print(f"  API 请求 [{qid[:8]}...]: HTTP {r.status_code}")
+        if r.status_code == 200 and "data" in r.json():
+            valid_qid, first_data = qid, r.json()
+            break
+        if r.status_code in (400, 404) and attempt == len(query_ids) - 1:
+            new_qid = _auto_discover_query_id()
+            if new_qid and new_qid not in query_ids:
+                query_ids.append(new_qid)
+
+    if valid_qid is None:
+        raise RuntimeError("所有 queryId 均无效")
+
+    collected: list[dict] = []
+    seen_ids: set[str] = set()
+    total_fetched = 0
+
+    def _process(data: dict):
+        tweets = _extract_tweets(data)
+        cursor = _extract_bottom_cursor(data)
+        oldest = None
+        for t in tweets:
+            dt = _parse_tweet_time(t["timestamp"])
+            if dt and (oldest is None or dt < oldest):
+                oldest = dt
+        return tweets, oldest, cursor
+
+    cursor = None
+    for page in range(1, max_pages + 1):
+        if page == 1:
+            tweets, oldest, cursor = _process(first_data)
+        else:
+            variables = {
+                "count": 100,
+                "includePromotedContent": False,
+                "latestControlAvailable": True,
+                "withCommunity": True,
+                "cursor": cursor,
+            }
+            params = {"variables": json.dumps(variables), "features": json.dumps(_FEATURES)}
+            url = f"https://x.com/i/api/graphql/{valid_qid}/HomeLatestTimeline"
+            r = requests.get(url, headers=headers, cookies=cookies, params=params)
+            print(f"  第{page}页 API: HTTP {r.status_code}")
+            if r.status_code != 200 or "data" not in r.json():
+                print(f"  翻页失败，停止")
+                break
+            tweets, oldest, cursor = _process(r.json())
+
+        total_fetched += len(tweets)
+        prev = len(collected)
+        for t in tweets:
+            dt = _parse_tweet_time(t["timestamp"])
+            if dt and since <= dt <= until and t["id"] not in seen_ids:
+                if _is_finance_related(t["content"]):
+                    collected.append(t)
+                    seen_ids.add(t["id"])
+
+        oldest_str = oldest.strftime("%m-%d %H:%M UTC") if oldest else "未知"
+        print(f"  第{page}页: {len(tweets)} 条，最早 {oldest_str}，窗口内新增 {len(collected) - prev} 条")
+
+        if oldest and oldest < since:
+            print(f"  已越过目标窗口起点，停止翻页")
+            break
+        if not cursor:
+            print(f"  无更多游标，停止")
+            break
+
+    print(f"  共抓取 {total_fetched} 条，时间窗口内投资相关 {len(collected)} 条")
+    return collected

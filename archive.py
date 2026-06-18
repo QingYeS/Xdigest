@@ -12,11 +12,11 @@ from pathlib import Path
 ARCHIVE_DIR = Path("archive")
 
 
-def append_posts(analyzed: list[dict]) -> None:
+def append_posts(analyzed: list[dict], target_date: date | None = None) -> None:
     if not analyzed:
         return
     ARCHIVE_DIR.mkdir(exist_ok=True)
-    today_file = ARCHIVE_DIR / f"{date.today().isoformat()}.jsonl"
+    today_file = ARCHIVE_DIR / f"{(target_date or date.today()).isoformat()}.jsonl"
 
     existing_ids: set[str] = set()
     if today_file.exists():

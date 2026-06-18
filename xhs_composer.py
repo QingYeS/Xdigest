@@ -192,7 +192,13 @@ def _gen_cards_with_validation(
     rejected: Optional[List[str]] = None
 
     for attempt in range(3):  # 初次 + 最多 2 次重试
-        raw = card_llm(post, rejected_phrases=rejected)
+        try:
+            raw = card_llm(post, rejected_phrases=rejected)
+        except Exception as e:
+            if last_card is not None:
+                print(f"[composer] card_llm 重试失败({e})，保留上次结果标记 needs_edit")
+                return [last_card], True
+            raise
         card = ContentCard(
             source_post_id=post["id"],
             heading=raw["heading"],
