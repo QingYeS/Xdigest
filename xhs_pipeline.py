@@ -254,14 +254,16 @@ def generate_xhs(
     mock: bool = False,
     card_llm: Optional[Callable] = None,
     plan_llm: Optional[Callable] = None,
+    run_date: Optional[date] = None,
 ) -> Path:
     """
     编排入口：analyzed posts → composer → renderer → preview HTML。
 
     Args:
-        analyzed: analyze_posts() 输出（含 id/content/translation/handle 等字段）
-        session:  "盘前" | "盘后" | "周报"
-        mock:     True 时使用内置 mock 数据，不调用 Groq
+        analyzed:  analyze_posts() 输出（含 id/content/translation/handle 等字段）
+        session:   "盘前" | "盘后" | "周报"
+        mock:      True 时使用内置 mock 数据，不调用 Groq
+        run_date:  内容归属日期（默认今天；backfill 时传入目标日期）
 
     Returns:
         输出目录 Path (xhs_output/{YYYYMMDD_HHMM}/)
@@ -269,7 +271,7 @@ def generate_xhs(
     if mock:
         return _run_mock(session)
 
-    run_date = date.today()
+    run_date = run_date or date.today()
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     out_dir = Path(os.getenv("XHS_OUTPUT_DIR", "xhs_output")) / ts
     out_dir.mkdir(parents=True, exist_ok=True)

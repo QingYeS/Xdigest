@@ -201,7 +201,7 @@ def main() -> None:
         def stub_plan_llm(cards, session_, prior_summaries=None, rejected_phrases=None):
             return {"hashtags": []}
 
-    out_dir = generate_xhs(posts, args.session, card_llm=cached_card_llm, plan_llm=stub_plan_llm)
+    out_dir = generate_xhs(posts, args.session, card_llm=cached_card_llm, plan_llm=stub_plan_llm, run_date=run_date)
     print(f"[regenerate] 完成，输出目录: {out_dir}")
 
 

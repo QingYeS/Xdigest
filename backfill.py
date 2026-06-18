@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from analyzer import analyze_posts
-from archive import ARCHIVE_DIR, append_posts
+from archive import ARCHIVE_DIR, append_posts, load_range
 from blogger_config import filter_tracked
 from scraper import scrape_range
 from xhs_pipeline import generate_xhs
@@ -124,24 +124,24 @@ def main() -> None:
     # 去重（与已有 archive 对比）
     existing_ids = _load_archive_ids(target_date)
     new_posts = [p for p in tracked_posts if p["id"] not in existing_ids]
-    if not new_posts:
-        print(f"[backfill] 全部 {len(tracked_posts)} 条已在 archive 中，跳过")
-        return
-    print(f"[backfill] 去重后新增 {len(new_posts)} 条（已有 {len(existing_ids)} 条）")
-
-    # Groq 分析
-    print("[backfill] 正在 Groq 分析...")
-    analyzed = analyze_posts(new_posts)
-
-    # 归档到目标日期
-    append_posts(analyzed, target_date=target_date)
+    if new_posts:
+        print(f"[backfill] 去重后新增 {len(new_posts)} 条（已有 {len(existing_ids)} 条）")
+        print("[backfill] 正在 Groq 分析...")
+        analyzed = analyze_posts(new_posts)
+        append_posts(analyzed, target_date=target_date)
+    else:
+        print(f"[backfill] 全部 {len(tracked_posts)} 条已在 archive，跳过分析和归档")
 
     if args.no_xhs:
         print("[backfill] --no-xhs，跳过 XHS 生成，完成")
         return
 
-    # 生成 XHS（含刚写入的全部当日数据）
-    out_path = generate_xhs(analyzed, session)
+    # 从 archive 加载当日全量数据生成 XHS（确保日期正确）
+    all_posts = load_range(target_date, target_date)
+    if not all_posts:
+        print("[backfill] archive 为空，无法生成 XHS")
+        return
+    out_path = generate_xhs(all_posts, session, run_date=target_date)
     print(f"[backfill] 完成，XHS 输出: {out_path}")
 
 
